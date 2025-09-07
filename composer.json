@@ -1,0 +1,63 @@
+{
+    "version": "1.0.3",
+    "name": "nyoncode/laravel-package-console",
+    "description": "Console to easily create a laravel package",
+    "keywords": [
+        "nyoncode",
+        "laravel",
+        "package",
+        "console",
+        "create"
+    ],
+    "homepage": "https://github.com/NyonCode/laravel-package-console",
+    "authors": [
+        {
+            "name": "Ondřej Nyklíček",
+            "email": "ondrej@nyoncode.cz",
+            "role": "Developer"
+        }
+    ],
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.1",
+        "ext-readline": "*",
+        "symfony/console": "^6.0|^7.0",
+        "symfony/validator": "^6.0|^7.0",
+        "symfony/finder": "^6.0|^7.0",
+        "symfony/string": "^7.2"
+    },
+    "require-dev": {
+        "mockery/mockery": "^1.5",
+        "pestphp/pest": "^1.22|^2.0|^3.1",
+        "squizlabs/php_codesniffer": "*",
+        "laravel/pint": "^1.24"
+    },
+    "autoload": {
+        "psr-4": {
+            "NyonCode\\LaravelPackageConsole\\": "src/"
+        },
+        "files": [
+            "src/Support/helpers.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "NyonCode\\LaravelPackageConsole\\Tests\\": "tests/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "pint": "vendor/bin/pint"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "bin": [
+        "bin/pcli_setup"
+    ]
+}

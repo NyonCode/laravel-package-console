@@ -1,0 +1,62 @@
+#!/usr/bin/env php
+<?php
+
+class EngineInstaller
+{
+    private string $basePath;
+
+    public function __construct()
+    {
+        $this->basePath = getcwd();
+    }
+
+    public function run(): void
+    {
+        echo "🔍 Hledám balíček 'nyoncode/laravel-package-console'...\n";
+
+        $packagePath = $this->findPackagePath();
+
+        if ($packagePath === false) {
+            echo "❌ Balíček nebyl nalezen! Ujisti se, že je správně nainstalovaný.\n";
+            exit(1);
+        }
+
+        echo "✅ Balíček nalezen v: $packagePath\n";
+
+        $stubSource = $packagePath . '/src/package.php';
+        $stubDestination = $this->basePath . '/package';
+
+        if (!file_exists($stubSource)) {
+            echo "❌ Soubor '$stubSource' neexistuje!\n";
+            exit(1);
+        }
+
+        if (!copy($stubSource, $stubDestination)) {
+            echo "❌ Chyba při kopírování stub souboru!\n";
+            exit(1);
+        }
+
+        echo "✅ Soubor package úspěšně zkopírován do '$stubDestination'\n";
+    }
+
+    private function findPackagePath(): string|false
+    {
+        $vendorPath = realpath($this->basePath . DIRECTORY_SEPARATOR . 'vendor');
+
+        if (!$vendorPath || !is_dir($vendorPath)) {
+            echo "❌ Složka 'vendor' neexistuje nebo není dostupná.\n";
+            return false;
+        }
+
+        $packagePath = realpath($vendorPath . '/nyoncode/laravel-package-console');
+
+        if (!$packagePath || !is_dir($packagePath)) {
+            return false;
+        }
+
+        return $packagePath;
+    }
+}
+
+$installer = new EngineInstaller();
+$installer->run();
