@@ -1,4 +1,4 @@
-<p align="center">
+  <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="art/logo/lockup-horizontal-dark.svg">
     <img src="art/logo/lockup-horizontal.svg" alt="Anvil" width="320">
@@ -32,7 +32,11 @@ php anvil make:model Post -a
   service provider**:
     - with [laravel-package-toolkit](https://github.com/NyonCode/laravel-package-toolkit), as
       `->hasX()` calls in `configure()`;
+    - with [spatie/laravel-package-tools](https://github.com/spatie/laravel-package-tools), as
+      `->hasX()` calls in `configurePackage()`;
     - with a plain Laravel `ServiceProvider`, as the standard calls in `register()`/`boot()`.
+- **Works with existing packages.** `package:init` completes `composer.json` and keeps your
+  provider, test setup and CI.
 - **Registration is idempotent.** It only adds what is missing and never reformats your code.
 - **Every generated file passes Pint and Larastan.** Integration tests install a generated
   package on Laravel 12 and 13 and check every registration in a running application.
@@ -54,7 +58,7 @@ The full documentation is in [`docs/`](docs/index.md):
 - [Installation](docs/installation.md) and [Quickstart](docs/quickstart.md)
 - [Creating a package](docs/package-init.md)
 - [Service provider registration](docs/service-provider.md): exactly what each generator adds,
-  with and without the toolkit
+  with the toolkit, with spatie/laravel-package-tools and with a plain provider
 - [Command reference](docs/commands.md)
 - [Customising stubs](docs/stubs.md)
 

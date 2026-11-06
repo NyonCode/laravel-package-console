@@ -119,11 +119,11 @@ says otherwise:
 
 | Package | File |
 |---|---|
-| uses the toolkit | `database/migrations/create_posts_table.php` (timeless) |
+| uses the toolkit or spatie/laravel-package-tools | `database/migrations/create_posts_table.php` (timeless) |
 | plain | `database/migrations/2026_01_15_093000_create_posts_table.php` |
 
-When the application publishes timeless migrations, the toolkit gives them a timestamp from the
-moment of publishing, so they run after the application's own migrations. `--timestamp` gives a
+When the application publishes timeless migrations, the toolkit (or the package tools) gives
+them a timestamp from the moment of publishing, so they run after the application's own migrations. `--timestamp` gives a
 timestamped name even with the toolkit.
 
 Two things matter with timeless migrations:
@@ -153,15 +153,15 @@ timestamped, because the application would publish both:
 
 **Registration**
 
-| Toolkit | Plain |
-|---|---|
-| `->hasMigrations()`, or the file is added to an explicit `->hasMigrations([...])` list | `$this->publishesMigrations([__DIR__.'/../database/migrations' => database_path('migrations')], 'blog-migrations');` |
+| Toolkit | Spatie | Plain |
+|---|---|---|
+| `->hasMigrations()`, or the file is added to an explicit `->hasMigrations([...])` list | `->hasMigration('create_posts_table')`; nothing with `->discoversMigrations()` | `$this->publishesMigrations([__DIR__.'/../database/migrations' => database_path('migrations')], 'blog-migrations');` |
 
 In both cases the application publishes the migrations and runs them with `php artisan migrate`:
 
 ```bash
 php artisan vendor:publish --tag="blog::migrations"   # toolkit
-php artisan vendor:publish --tag="blog-migrations"    # plain
+php artisan vendor:publish --tag="blog-migrations"    # plain and spatie
 ```
 
 ## make:factory
@@ -264,9 +264,9 @@ Because they share the application's namespace, give them a name that is clearly
 
 **Registration**
 
-| Toolkit | Plain |
-|---|---|
-| `->hasSeeders()`, or the file is added to an explicit `->hasSeeders([...])` list | `$this->publishes([__DIR__.'/../database/seeders' => database_path('seeders')], 'blog-seeders');` |
+| Toolkit | Spatie | Plain |
+|---|---|---|
+| `->hasSeeders()`, or the file is added to an explicit `->hasSeeders([...])` list | the plain code, in `packageBooted()` | `$this->publishes([__DIR__.'/../database/seeders' => database_path('seeders')], 'blog-seeders');` |
 
 ## make:cast
 

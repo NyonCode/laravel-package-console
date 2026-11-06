@@ -10,7 +10,7 @@ description: Anvil has no configuration file. It derives namespaces, paths, the 
 - [Where classes are written](#where-classes-are-written)
 - [The short name](#the-short-name)
 - [The main service provider](#the-main-service-provider)
-- [Toolkit mode or plain mode](#toolkit-mode-or-plain-mode)
+- [Registration modes](#registration-modes)
 - [package:info](#packageinfo)
 
 ## composer.json is the configuration
@@ -25,6 +25,7 @@ package root:
 | the short name | `name` |
 | the main service provider | `extra.laravel.providers` |
 | whether you use the toolkit | `require` / `require-dev` |
+| the registration mode and, if the provider sets one, the short name | the main provider's file |
 
 When you edit `composer.json` by hand, for example to rename the namespace or reorder the
 providers, the next command uses the new values. No cache needs clearing.
@@ -76,8 +77,17 @@ Names you pass to a generator are relative to its namespace: `make:class Other/T
 
 ## The short name
 
-The short name is your package's name inside a Laravel application. Anvil derives it from the
-Composer name:
+The short name is your package's name inside a Laravel application. When the main provider
+sets one, Anvil uses the same short name the provider does, so the files it writes are the files
+the provider loads:
+
+| Main provider | Short name |
+|---|---|
+| laravel-package-toolkit | `->hasShortName('blog')`; otherwise `Str::kebab()` of `->name('Blog Posts')`, i.e. `blog-posts` |
+| spatie/laravel-package-tools | `->name('laravel-blog')` without the `laravel-` prefix, i.e. `blog` |
+| plain, or no provider yet | derived from the Composer name, as below |
+
+From the Composer name, Anvil derives it like this:
 
 1. drop the vendor;
 2. drop a `laravel-` prefix or a `-laravel` suffix;
@@ -98,7 +108,7 @@ The short name appears everywhere a package needs a prefix:
 | the view namespace | `view('blog::posts.index')` |
 | the translation namespace | `__('blog::messages.welcome')` |
 | the Blade component prefix | `<x-blog::alert />` |
-| publish tags | `blog::config` (toolkit), `blog-config` (plain) |
+| publish tags | `blog::config` (toolkit), `blog-config` (plain and spatie) |
 | console command signatures | `blog:sync-posts` |
 | route prefixes and names | `/blog/…`, `blog.…` |
 
@@ -127,33 +137,49 @@ the first existing provider is used even when the list contains a stale entry.
 To make another provider the main one, move it to the top of the list, or create it with
 [`make:provider --main`](classes.md#makeprovider).
 
+`package:init` also finds a provider that the list is missing. It looks for a class in the
+package's source whose parent class name ends in `ServiceProvider` (preferring
+`{Package}ServiceProvider`), and adds it to `extra.laravel.providers`.
+
 If the package has no provider yet, every generator still writes its file, then warns:
 
 ```
   WARN No service provider found in composer.json "extra.laravel.providers". Run "make:provider" to create one, then re-run this command with --force.
 ```
 
-## Toolkit mode or plain mode
+## Registration modes
 
 Anvil reads the main provider itself to decide how to register files:
 
-- If the provider has a **`configure()` method**, it is a
-  [laravel-package-toolkit](https://github.com/NyonCode/laravel-package-toolkit) provider, and
-  Anvil extends the `$packager` chain.
-- Otherwise it is a plain Laravel `ServiceProvider`, and Anvil adds standard calls to
-  `register()` and `boot()`.
+| The provider | Mode | Anvil adds |
+|---|---|---|
+| has a `configure(Packager $packager)` method ([laravel-package-toolkit](https://github.com/NyonCode/laravel-package-toolkit)) | toolkit | `->hasX()` calls to the `$packager` chain |
+| has a `configurePackage(Package $package)` method ([spatie/laravel-package-tools](https://github.com/spatie/laravel-package-tools)) | spatie | `->hasX()` calls to the `$package` chain, other statements to `packageBooted()` / `packageRegistered()` |
+| neither | plain | the standard Laravel calls to `register()` and `boot()` |
 
 The **provider file** decides the mode, not `composer.json`. A package can require the toolkit and
 still have a plain provider, and Anvil then registers in plain mode.
 
-Whether `composer.json` requires `nyoncode/laravel-package-toolkit` matters in three places:
+**Providers with a parent class.** In plain mode, Anvil only creates `register()` or `boot()` in
+a provider that extends `Illuminate\Support\ServiceProvider`. In a provider that extends any
+other base class, a new `boot()` would override the parent's. Anvil then adds to the methods the
+provider already has, and asks you to add the rest by hand. See
+[Service provider registration](service-provider.md#providers-with-a-parent-class).
+
+The mode also decides a few things beyond registration:
+
+| | toolkit | spatie | plain |
+|---|---|---|---|
+| [Migration file names](database.md#makemigration) | timeless | timeless | timestamped |
+| [Translations](views-and-translations.md#makelang) | `lang/` | `resources/lang/` | `lang/` |
+| Publish tags | `blog::config` | `blog-config` | `blog-config` |
+
+Whether `composer.json` requires `nyoncode/laravel-package-toolkit` matters in two more places:
 
 - `make:provider` uses the toolkit stub for the main provider;
-- [`make:migration`](database.md#makemigration) writes timeless migrations;
-- `package:init` uses the toolkit by default.
+- migrations are timeless, even in a plain provider.
 
-[Service provider registration](service-provider.md) shows what each generator adds in both
-modes.
+[Service provider registration](service-provider.md) shows what each generator adds in each mode.
 
 ## package:info
 

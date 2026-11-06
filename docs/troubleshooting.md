@@ -14,6 +14,8 @@ description: What Anvil's errors and warnings mean and how to fix them.
 - [The wrong provider was edited](#the-wrong-provider-was-edited)
 - [Toolkit calls in a plain provider, or the other way round](#toolkit-calls-in-a-plain-provider-or-the-other-way-round)
 - [A migration named … already exists](#a-migration-named--already-exists)
+- [WARN … extends … and has no boot()](#warn--extends--and-has-no-boot)
+- [package:init skipped phpunit.xml or the CI workflow](#packageinit-skipped-phpunitxml-or-the-ci-workflow)
 - [MissingAppKeyException in tests](#missingappkeyexception-in-tests)
 - [Anvil is not installed](#anvil-is-not-installed)
 
@@ -102,8 +104,13 @@ the main one.
 
 ## Toolkit calls in a plain provider, or the other way round
 
-Anvil decides the mode from the provider file: a `configure()` method means toolkit mode. To
-switch a package to the toolkit:
+Anvil decides the mode from the provider file:
+
+- a `configure()` method means toolkit mode;
+- a `configurePackage()` method means spatie mode;
+- anything else is plain.
+
+To switch a package to the toolkit:
 
 1. run `composer require nyoncode/laravel-package-toolkit`;
 2. make the provider extend `NyonCode\LaravelPackageToolkit\PackageServiceProvider`;
@@ -117,6 +124,41 @@ switch a package to the toolkit:
 
 The application would publish both migrations, and the second would fail. Choose another name.
 If you really mean to replace the file, pass `--force`.
+
+## WARN … extends … and has no boot()
+
+```
+  WARN src/BlogServiceProvider.php extends Vendor\Foundation\BaseServiceProvider and has no boot(). Adding one would override the parent's, so add this to boot() by hand, after parent::boot():
+      $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
+```
+
+Your provider extends a base class other than Laravel's `ServiceProvider`. Anvil will not create
+`boot()` or `register()` in it, because that would replace the parent's. Add the method once,
+calling the parent first, and paste the printed code into it:
+
+```php
+public function boot(): void
+{
+    parent::boot();
+
+    $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
+}
+```
+
+From then on, Anvil adds to it. See
+[Providers with a parent class](service-provider.md#providers-with-a-parent-class).
+
+## package:init skipped phpunit.xml or the CI workflow
+
+```
+  SKIP   phpunit.xml (phpunit.xml.dist exists)
+  SKIP   .github/workflows/tests.yml (.github/workflows/run-tests.yml exists)
+```
+
+The package already has its own test configuration and CI. Writing Anvil's versions would
+override `phpunit.xml.dist` or run the tests twice, so they are skipped. To take Anvil's files
+anyway, pass `--force`. The full list is in
+[Running it on an existing package](package-init.md#files).
 
 ## MissingAppKeyException in tests
 

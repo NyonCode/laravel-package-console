@@ -27,6 +27,13 @@ final class PackageInitCommand extends GenerateCommand
 
     private const TOOLKIT_VERSION = '^2.5';
 
+    /**
+     * Files written by this run.
+     *
+     * @var list<string>
+     */
+    private array $written = [];
+
     protected string $type = 'File';
 
     public function handle(): int
@@ -48,7 +55,10 @@ final class PackageInitCommand extends GenerateCommand
         $namespace = trim($this->answer('namespace', 'Root namespace', $this->existingNamespace() ?? $this->guessNamespace($name)), '\\');
         $author = $this->answer('author', 'Author name', $composer->get('authors.0.name') ?: $this->git('user.name') ?: 'Your Name');
         $email = $this->answer('email', 'Author email', $composer->get('authors.0.email') ?: $this->git('user.email') ?: '');
-        $toolkit = $this->wantsToolkit();
+        // A provider the package already has, but composer.json does not list.
+        $discovered = $package->exists() && $package->mainProvider() === null ? $package->discoverProviders() : [];
+        $hasProvider = $package->mainProvider() !== null || $discovered !== [];
+        $toolkit = $this->wantsToolkit($hasProvider);
         $laravel = $this->laravelVersions();
 
         $this->writeComposer($name, $description, $namespace, $author, $email, $toolkit, $laravel);
@@ -56,18 +66,31 @@ final class PackageInitCommand extends GenerateCommand
 
         $this->newLine();
 
-        if ($package->mainProvider() === null) {
+        if ($package->mainProvider() === null && $discovered !== []) {
+            $this->registerExistingProvider($discovered[0]);
+        } elseif ($package->mainProvider() === null) {
             $this->call('make:provider', ['name' => $package->defaultProviderName(), '--main' => true]);
+        }
+
+        if ($this->option('toolkit') && $package->providerMode() !== 'toolkit') {
+            $this->output()->writeln(sprintf(
+                '  <fg=yellow;options=bold>WARN</> %s is not a laravel-package-toolkit provider, so generators keep registering in its own style.',
+                $package->relativePath((string) $package->mainProviderPath())
+            ));
         }
 
         if (! $this->option('no-config') && ! is_file($package->path('config/'.$package->shortName().'.php'))) {
             $this->call('make:config');
         }
 
-        $this->scaffold($this->replacements($description, $author, $toolkit, $laravel));
+        $this->scaffold($this->replacements($description, $author, $laravel));
 
         $this->newLine();
-        $this->right(($toolkit ? 'Package ready (with laravel-package-toolkit).' : 'Package ready.'));
+        $this->right(match ($package->providerMode()) {
+            'toolkit' => 'Package ready (with laravel-package-toolkit).',
+            'spatie' => 'Package ready (with spatie/laravel-package-tools).',
+            default => 'Package ready.',
+        });
         $this->message([
             '  Next steps:',
             '    <options=bold>composer update</>',
@@ -78,6 +101,25 @@ final class PackageInitCommand extends GenerateCommand
         ]);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * List a provider the package already has in extra.laravel.providers, first, instead of
+     * creating a second one.
+     */
+    private function registerExistingProvider(string $provider): void
+    {
+        $package = $this->package();
+        $composer = $package->composer();
+        $composer->set('extra.laravel.providers', [$provider, ...array_values(array_diff($package->providers(), [$provider]))]);
+        $composer->save();
+        $package->refresh();
+
+        $this->output()->writeln(sprintf(
+            '  <fg=green;options=bold>DONE</> Found %s and registered %s in composer.json "extra.laravel.providers".',
+            $package->relativePath((string) $package->pathForClass($provider)),
+            $provider
+        ));
     }
 
     /**
@@ -113,6 +155,7 @@ final class PackageInitCommand extends GenerateCommand
         $composer->mergeMissing('require-dev', [
             'larastan/larastan' => '^3.0',
             'laravel/pint' => '^1.24',
+            'nyoncode/laravel-package-console' => '^'.explode('.', (string) anvil_config('version'))[0].'.0',
             'orchestra/testbench' => implode('|', array_map(fn (string $v) => '^'.self::LARAVEL[$v]['testbench'].'.0', $laravel)),
             'pestphp/pest' => $supportsL12 ? '^3.8|^4.0' : '^4.0',
             'pestphp/pest-plugin-laravel' => $supportsL12 ? '^3.2|^4.0' : '^4.0',
@@ -180,6 +223,12 @@ final class PackageInitCommand extends GenerateCommand
                 continue;
             }
 
+            if (($existing = $this->existingEquivalent($target)) !== null && ! $this->option('force')) {
+                $this->output()->writeln("  <fg=gray>SKIP</>   $target ($existing exists)");
+
+                continue;
+            }
+
             $contents = $this->populateStub($this->files->get($this->resolveStub('package/'.$stub)), $replacements);
 
             if (str_ends_with($target, '.php')) {
@@ -188,6 +237,7 @@ final class PackageInitCommand extends GenerateCommand
 
             $this->makeDirectory($path);
             $this->files->put($path, $contents);
+            $this->written[] = $target;
 
             if ($target === 'anvil') {
                 @chmod($path, 0755);
@@ -198,10 +248,47 @@ final class PackageInitCommand extends GenerateCommand
     }
 
     /**
+     * A file the package already has that does the job of $target, so writing $target would
+     * clash with it: phpunit.xml would override phpunit.xml.dist, a second CI workflow would run
+     * the tests twice, and Pest files would point at a TestCase the package does not have.
+     */
+    private function existingEquivalent(string $target): ?string
+    {
+        $package = $this->package();
+        $alternatives = [
+            'phpunit.xml' => ['phpunit.xml.dist', 'phpunit.dist.xml'],
+            'phpstan.neon.dist' => ['phpstan.neon', 'phpstan.dist.neon'],
+            'pint.json' => ['.pint.json'],
+            'LICENSE.md' => ['LICENSE', 'LICENSE.txt', 'license.md'],
+            'README.md' => ['readme.md', 'README', 'README.rst'],
+            'tests/Pest.php' => ['tests/TestCase.php'],
+            'tests/ArchTest.php' => ['tests/TestCase.php'],
+            'tests/Feature/ServiceProviderTest.php' => ['tests/TestCase.php'],
+        ];
+
+        foreach ($alternatives[$target] ?? [] as $file) {
+            // tests/TestCase.php is ours when this run just wrote it.
+            if (is_file($package->path($file)) && ! in_array($file, $this->written, true)) {
+                return $file;
+            }
+        }
+
+        if ($target === '.github/workflows/tests.yml') {
+            foreach (glob($package->path('.github/workflows/*.{yml,yaml}'), GLOB_BRACE) ?: [] as $workflow) {
+                if (preg_match('/\b(pest|phpunit|composer test)\b/i', (string) file_get_contents($workflow))) {
+                    return $package->relativePath($workflow);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param  list<string>  $laravel
      * @return array<string, string>
      */
-    private function replacements(string $description, string $author, bool $toolkit, array $laravel): array
+    private function replacements(string $description, string $author, array $laravel): array
     {
         $package = $this->package();
         $provider = (string) $package->mainProvider();
@@ -229,7 +316,7 @@ final class PackageInitCommand extends GenerateCommand
             'providerClass' => $this->classBasename($provider),
             'php' => (string) $package->composer()->get('require.php'),
             'laravel' => implode(' / ', array_map(fn (string $v) => "$v.x", $laravel)),
-            'configTag' => $package->shortName().($toolkit ? '::' : '-').'config',
+            'configTag' => $package->shortName().($package->providerMode() === 'toolkit' ? '::' : '-').'config',
             'year' => date('Y'),
             'appKey' => 'base64:'.base64_encode(random_bytes(32)),
             'author' => $author,
@@ -258,7 +345,12 @@ final class PackageInitCommand extends GenerateCommand
         return (string) $this->ask($question, $default, $validator);
     }
 
-    private function wantsToolkit(): bool
+    /**
+     * A new package uses the toolkit unless --no-toolkit is given (or the prompt is declined).
+     * A package that already has a provider keeps its dependencies: the provider's own style
+     * decides how generators register, so the toolkit is only added with an explicit --toolkit.
+     */
+    private function wantsToolkit(bool $hasProvider): bool
     {
         if ($this->option('toolkit')) {
             return true;
@@ -268,11 +360,13 @@ final class PackageInitCommand extends GenerateCommand
             return false;
         }
 
-        $default = $this->package()->usesToolkit() || ! $this->package()->exists() || $this->package()->mainProvider() === null;
+        if ($hasProvider) {
+            return $this->package()->usesToolkit();
+        }
 
         return $this->input()->isInteractive()
-            ? $this->confirm('Use nyoncode/laravel-package-toolkit for the service provider?', $default)
-            : $default;
+            ? $this->confirm('Use nyoncode/laravel-package-toolkit for the service provider?', true)
+            : true;
     }
 
     /**

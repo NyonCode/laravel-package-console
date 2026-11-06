@@ -33,7 +33,9 @@ final class LangMakeCommand extends FileGenerateCommand
             throw new RuntimeException('The locale may only contain letters, numbers, "_" and "-".');
         }
 
-        return $this->package()->path($this->option('json') ? "lang/$locale.json" : "lang/$locale/$name.php");
+        $lang = $this->package()->translationsPath();
+
+        return $this->package()->path($this->option('json') ? "$lang/$locale.json" : "$lang/$locale/$name.php");
     }
 
     protected function buildFile(string $name): string

@@ -7,83 +7,104 @@ namespace NyonCode\LaravelPackageConsole\Support;
 use Closure;
 
 /**
- * Registers generated resources in the package's main service provider.
+ * Registers generated resources in the package's main service provider, in the provider's own style:
  *
- * With nyoncode/laravel-package-toolkit the matching `->hasX()` call is added to the
- * Packager chain in configure(); otherwise the standard Laravel ServiceProvider calls
- * (mergeConfigFrom, loadRoutesFrom, publishes, commands, ...) go into register()/boot().
- * Every operation is idempotent.
+ * - nyoncode/laravel-package-toolkit: a `->hasX()` call on the Packager chain in configure();
+ * - spatie/laravel-package-tools: a `->hasX()` call on the Package chain in configurePackage(),
+ *   and statements in the packageBooted()/packageRegistered() hooks for what it has no call for;
+ * - a plain Laravel ServiceProvider: the standard calls (mergeConfigFrom, loadRoutesFrom,
+ *   publishes, commands, ...) in register()/boot().
+ *
+ * Every operation is idempotent. register()/boot() are never added to a provider that extends
+ * another base class, because they would override the parent's.
  */
 final class ProviderRegistrar
 {
+    private const LARAVEL_PROVIDER = 'Illuminate\Support\ServiceProvider';
+
+    /**
+     * The spatie/laravel-package-tools hooks that stand in for register() and boot().
+     */
+    private const SPATIE_HOOKS = ['register' => 'packageRegistered', 'boot' => 'packageBooted'];
+
+    private string $mode = 'plain';
+
+    private ?string $parentClass = null;
+
     public function __construct(private readonly Package $package) {}
 
     public function config(string $file): Registration
     {
         $key = basename($file, '.php');
+        $statements = [
+            ['register', "\$this->mergeConfigFrom({$this->path("config/$file")}, '$key');"],
+            ['boot', "\$this->publishes([\n    {$this->path("config/$file")} => config_path('$file'),\n], '{$this->tag('config')}');"],
+        ];
 
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasConfig', "'$file'", 'hasConfig()'),
-            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['register', "\$this->mergeConfigFrom({$this->path("config/$file")}, '$key');"],
-                ['boot', "\$this->publishes([\n    {$this->path("config/$file")} => config_path('$file'),\n], '{$this->tag('config')}');"],
-            ]),
+            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, $statements),
+            spatie: fn (PhpFileEditor $e) => $this->spatieConfig($e, $key),
         );
     }
 
     public function routes(string $file): Registration
     {
+        $name = basename($file, '.php');
+
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasRoutes', "'$file'", "hasRoutes(['$file'])"),
             laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
                 ['boot', "\$this->loadRoutesFrom({$this->path("routes/$file")});"],
             ]),
+            spatie: fn (PhpFileEditor $e) => $this->spatieCall($e, ['hasRoute', 'hasRoutes'], "'$name'", "hasRoute('$name')"),
         );
     }
 
     public function broadcastChannels(string $file): Registration
     {
+        $statements = [['boot', "require {$this->path("routes/$file")};"]];
+
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasBroadcastChannels', "'$file'", "hasBroadcastChannels(['$file'])"),
-            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "require {$this->path("routes/$file")};"],
-            ]),
+            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, $statements),
+            spatie: fn (PhpFileEditor $e) => $this->laravelStatements($e, $statements),
         );
     }
 
     /**
-     * @param  string|null  $file  The new migration, added when hasMigrations() lists its files.
+     * @param  string|null  $file  The new migration, added when the provider lists its files.
      */
     public function migrations(?string $file = null): Registration
     {
+        $name = $file !== null ? (string) preg_replace('/\.php(\.stub)?$/', '', $file) : null;
+
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasMigrations', $file !== null ? "'$file'" : null, 'hasMigrations()'),
             laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
                 ['boot', "\$this->publishesMigrations([\n    {$this->path('database/migrations')} => database_path('migrations'),\n], '{$this->tag('migrations')}');"],
             ]),
+            spatie: function (PhpFileEditor $e) use ($name) {
+                if ($name === null || in_array('discoversMigrations', array_column($e->packagerCalls(), 'name'), true)) {
+                    return Registration::already();
+                }
+
+                return $this->spatieCall($e, ['hasMigration', 'hasMigrations'], "'$name'", "hasMigration('$name')");
+            },
         );
     }
 
     /**
-     * @param  string|null  $file  The new seeder, added when hasSeeders() lists its files.
+     * @param  string|null  $file  The new seeder, added when the provider lists its files.
      */
     public function seeders(?string $file = null): Registration
     {
+        $statements = [['boot', "\$this->publishes([\n    {$this->path('database/seeders')} => database_path('seeders'),\n], '{$this->tag('seeders')}');"]];
+
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasSeeders', $file !== null ? "'$file'" : null, 'hasSeeders()'),
-            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "\$this->publishes([\n    {$this->path('database/seeders')} => database_path('seeders'),\n], '{$this->tag('seeders')}');"],
-            ]),
-        );
-    }
-
-    public function factories(): Registration
-    {
-        return $this->apply(
-            toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasFactories', null, 'hasFactories()'),
-            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "\$this->publishes([\n    {$this->path('database/factories')} => database_path('factories'),\n], '{$this->tag('factories')}');"],
-            ]),
+            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, $statements),
+            spatie: fn (PhpFileEditor $e) => $this->laravelStatements($e, $statements),
         );
     }
 
@@ -97,20 +118,23 @@ final class ProviderRegistrar
                 ['boot', "\$this->loadViewsFrom({$this->path('resources/views')}, '$short');"],
                 ['boot', "\$this->publishes([\n    {$this->path('resources/views')} => resource_path('views/vendor/$short'),\n], '{$this->tag('views')}');"],
             ]),
+            spatie: fn (PhpFileEditor $e) => $this->spatieCall($e, ['hasViews'], '', 'hasViews()'),
         );
     }
 
     public function translations(): Registration
     {
         $short = $this->package->shortName();
+        $lang = $this->package->translationsPath();
 
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasTranslations', null, 'hasTranslations()'),
             laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "\$this->loadTranslationsFrom({$this->path('lang')}, '$short');"],
-                ['boot', "\$this->loadJsonTranslationsFrom({$this->path('lang')});"],
-                ['boot', "\$this->publishes([\n    {$this->path('lang')} => lang_path('vendor/$short'),\n], '{$this->tag('translations')}');"],
+                ['boot', "\$this->loadTranslationsFrom({$this->path($lang)}, '$short');"],
+                ['boot', "\$this->loadJsonTranslationsFrom({$this->path($lang)});"],
+                ['boot', "\$this->publishes([\n    {$this->path($lang)} => lang_path('vendor/$short'),\n], '{$this->tag('translations')}');"],
             ]),
+            spatie: fn (PhpFileEditor $e) => $this->spatieCall($e, ['hasTranslations'], '', 'hasTranslations()'),
         );
     }
 
@@ -135,14 +159,33 @@ final class ProviderRegistrar
                     return Registration::already();
                 }
 
+                $block = "if (\$this->app->runningInConsole()) {\n    \$this->commands([\n        $short::class,\n    ]);\n}";
+
+                if (! $e->hasMethod('boot') && ! $this->canAddLifecycleMethods()) {
+                    return $this->manualLifecycle('boot', $block);
+                }
+
                 $this->ensureMethod($e, 'boot');
                 $e->addUse($class);
 
                 if (! $e->addItemToThisCallArray('boot', 'commands', "$short::class")) {
-                    $e->appendToMethod('boot', "if (\$this->app->runningInConsole()) {\n    \$this->commands([\n        $short::class,\n    ]);\n}");
+                    $e->appendToMethod('boot', $block);
                 }
 
                 return Registration::registered("$short::class in commands()");
+            },
+            spatie: function (PhpFileEditor $e) use ($class, $short) {
+                $calls = ['hasCommand', 'hasCommands', 'hasConsoleCommand', 'hasConsoleCommands'];
+
+                foreach ($e->packagerCalls() as $call) {
+                    if (in_array($call['name'], $calls, true) && str_contains($call['args'], "$short::class")) {
+                        return Registration::already();
+                    }
+                }
+
+                $e->addUse($class);
+
+                return $this->spatieCall($e, [], '', "hasCommand($short::class)");
             },
         );
     }
@@ -150,6 +193,17 @@ final class ProviderRegistrar
     public function componentNamespace(string $namespace): Registration
     {
         $prefix = $this->package->shortName();
+        $blade = function (PhpFileEditor $e) use ($namespace, $prefix) {
+            $result = $this->laravelStatements($e, [
+                ['boot', "Blade::componentNamespace('$namespace', '$prefix');"],
+            ]);
+
+            if ($result->status === Registration::REGISTERED) {
+                $e->addUse('Illuminate\Support\Facades\Blade');
+            }
+
+            return $result;
+        };
 
         return $this->apply(
             toolkit: function (PhpFileEditor $e) use ($namespace, $prefix) {
@@ -163,19 +217,25 @@ final class ProviderRegistrar
 
                 return Registration::registered("->hasComponentNamespace('$prefix', ...)");
             },
-            laravel: function (PhpFileEditor $e) use ($namespace, $prefix) {
-                $e->addUse('Illuminate\Support\Facades\Blade');
-
-                return $this->laravelStatements($e, [
-                    ['boot', "Blade::componentNamespace('$namespace', '$prefix');"],
-                ]);
-            },
+            laravel: $blade,
+            spatie: $blade,
         );
     }
 
     public function middlewareAlias(string $alias, string $class): Registration
     {
         $short = self::basename($class);
+        $plain = function (PhpFileEditor $e) use ($alias, $class, $short) {
+            $result = $this->laravelStatements($e, [
+                ['boot', "\$this->app['router']->aliasMiddleware('$alias', $short::class);"],
+            ]);
+
+            if ($result->status === Registration::REGISTERED) {
+                $e->addUse($class);
+            }
+
+            return $result;
+        };
 
         return $this->apply(
             toolkit: function (PhpFileEditor $e) use ($alias, $class, $short) {
@@ -189,13 +249,8 @@ final class ProviderRegistrar
 
                 return $this->toolkitResource($e, 'hasMiddlewareAliases', "'$alias' => $short::class", "hasMiddlewareAliases(['$alias' => $short::class])");
             },
-            laravel: function (PhpFileEditor $e) use ($alias, $class, $short) {
-                $e->addUse($class);
-
-                return $this->laravelStatements($e, [
-                    ['boot', "\$this->app['router']->aliasMiddleware('$alias', $short::class);"],
-                ]);
-            },
+            laravel: $plain,
+            spatie: $plain,
         );
     }
 
@@ -203,6 +258,17 @@ final class ProviderRegistrar
     {
         $eventShort = self::basename($event);
         $listenerShort = self::basename($listener);
+        $plain = function (PhpFileEditor $e) use ($event, $listener, $eventShort, $listenerShort) {
+            $result = $this->laravelStatements($e, [
+                ['boot', "Event::listen($eventShort::class, $listenerShort::class);"],
+            ]);
+
+            if ($result->status === Registration::REGISTERED) {
+                $e->addUse('Illuminate\Support\Facades\Event')->addUse($event)->addUse($listener);
+            }
+
+            return $result;
+        };
 
         return $this->apply(
             toolkit: function (PhpFileEditor $e) use ($event, $listener, $eventShort, $listenerShort) {
@@ -219,21 +285,17 @@ final class ProviderRegistrar
 
                 return Registration::registered("->hasEvent($eventShort::class, $listenerShort::class)");
             },
-            laravel: function (PhpFileEditor $e) use ($event, $listener, $eventShort, $listenerShort) {
-                $e->addUse('Illuminate\Support\Facades\Event')->addUse($event)->addUse($listener);
-
-                return $this->laravelStatements($e, [
-                    ['boot', "Event::listen($eventShort::class, $listenerShort::class);"],
-                ]);
-            },
+            laravel: $plain,
+            spatie: $plain,
         );
     }
 
     /**
      * @param  Closure(PhpFileEditor): Registration  $toolkit
      * @param  Closure(PhpFileEditor): Registration  $laravel
+     * @param  Closure(PhpFileEditor): Registration  $spatie
      */
-    private function apply(Closure $toolkit, Closure $laravel): Registration
+    private function apply(Closure $toolkit, Closure $laravel, Closure $spatie): Registration
     {
         $path = $this->package->mainProviderPath();
 
@@ -242,13 +304,21 @@ final class ProviderRegistrar
         }
 
         $editor = PhpFileEditor::fromFile($path);
-        $result = $editor->hasPackagerConfiguration() ? $toolkit($editor) : $laravel($editor);
+        $this->mode = $editor->mode();
+        $this->parentClass = $editor->parentClass();
+
+        $result = match ($this->mode) {
+            'toolkit' => $toolkit($editor),
+            'spatie' => $spatie($editor->usingConfigurationMethod('configurePackage')),
+            default => $laravel($editor),
+        };
 
         if ($result->status === Registration::REGISTERED) {
             file_put_contents($path, $editor->code());
 
             return Registration::registered(
-                'Registered '.$result->message.' in '.$this->package->relativePath($path).'.'
+                'Registered '.$result->message.' in '.$this->package->relativePath($path).'.',
+                $result->warning
             );
         }
 
@@ -256,7 +326,7 @@ final class ProviderRegistrar
     }
 
     /**
-     * Make sure a Packager call covers the resource.
+     * Make sure a toolkit Packager call covers the resource.
      *
      * - not called yet            -> append $newCall
      * - called without arguments  -> auto-discovery already covers it
@@ -287,19 +357,86 @@ final class ProviderRegistrar
     }
 
     /**
+     * spatie/laravel-package-tools calls are additive (hasRoute(), hasMigration(), hasCommand()),
+     * so a resource is registered by appending a call unless one of $coveredBy already names it
+     * ($needle === '': any such call covers it).
+     *
+     * @param  list<string>  $coveredBy
+     */
+    private function spatieCall(PhpFileEditor $editor, array $coveredBy, string $needle, string $newCall): Registration
+    {
+        foreach ($editor->packagerCalls() as $call) {
+            if (in_array($call['name'], $coveredBy, true) && ($needle === '' || str_contains($call['args'], $needle))) {
+                return Registration::already();
+            }
+        }
+
+        $editor->appendPackagerCall($newCall);
+
+        return Registration::registered("->$newCall");
+    }
+
+    /**
+     * hasConfigFile() replaces its list on every call, so a second config file is added to
+     * the existing call: hasConfigFile() -> hasConfigFile(['blog', 'blog-cache']).
+     */
+    private function spatieConfig(PhpFileEditor $editor, string $key): Registration
+    {
+        $short = $this->package->shortName();
+        $existing = array_values(array_filter($editor->packagerCalls(), fn (array $call) => $call['name'] === 'hasConfigFile'));
+
+        if ($existing === []) {
+            $call = $key === $short ? 'hasConfigFile()' : "hasConfigFile('$key')";
+            $editor->appendPackagerCall($call);
+
+            return Registration::registered("->$call");
+        }
+
+        $args = $existing[0]['args'];
+
+        if (($args === '' && $key === $short) || str_contains($args, "'$key'") || str_contains($args, "\"$key\"")) {
+            return Registration::already();
+        }
+
+        if ($args === '' || preg_match('/^([\'"])[^\'"]*\1$/', $args)) {
+            $files = $args === '' ? "'$short'" : $args;
+            $editor->replacePackagerCallArguments('hasConfigFile', "[$files, '$key']");
+
+            return Registration::registered("'$key' in ->hasConfigFile()");
+        }
+
+        if ($editor->addItemToPackagerCallArray('hasConfigFile', "'$key'")) {
+            return Registration::registered("'$key' in ->hasConfigFile()");
+        }
+
+        return Registration::manual("Add '$key' to ->hasConfigFile($args) in the service provider.");
+    }
+
+    /**
+     * Add statements to register()/boot() (spatie: packageRegistered()/packageBooted()) unless
+     * the file already contains them.
+     *
      * @param  list<array{0: string, 1: string, 2?: string}>  $statements  [method, code, dedupe needle] tuples
      */
     private function laravelStatements(PhpFileEditor $editor, array $statements): Registration
     {
         $added = [];
+        $manual = null;
 
         foreach ($statements as $statement) {
             [$method, $code] = $statement;
+            $method = $this->mode === 'spatie' ? self::SPATIE_HOOKS[$method] : $method;
             $lines = explode("\n", $code);
             // Multi-line blocks (publishes) are identified by their distinctive second line.
             $needle = $statement[2] ?? trim($lines[count($lines) > 1 ? 1 : 0]);
 
             if ($editor->contains($needle)) {
+                continue;
+            }
+
+            if (! $editor->hasMethod($method) && ! $this->canAddLifecycleMethods()) {
+                $manual ??= $this->manualLifecycle($method, $code);
+
                 continue;
             }
 
@@ -309,7 +446,7 @@ final class ProviderRegistrar
         }
 
         if ($added === []) {
-            return Registration::already();
+            return $manual ?? Registration::already();
         }
 
         $parts = [];
@@ -318,7 +455,29 @@ final class ProviderRegistrar
             $parts[] = implode(', ', array_unique($calls))." in $method()";
         }
 
-        return Registration::registered(implode(' and ', $parts));
+        return Registration::registered(implode(' and ', $parts), $manual?->message);
+    }
+
+    /**
+     * register()/boot() may only be added to a provider that extends Laravel's ServiceProvider
+     * (whose methods are empty). The spatie hooks are empty by design, so they can always be added.
+     */
+    private function canAddLifecycleMethods(): bool
+    {
+        return $this->mode === 'spatie'
+            || $this->parentClass === null
+            || ltrim($this->parentClass, '\\') === self::LARAVEL_PROVIDER;
+    }
+
+    private function manualLifecycle(string $method, string $code): Registration
+    {
+        $provider = $this->package->relativePath((string) $this->package->mainProviderPath());
+        $indented = implode("\n", array_map(fn (string $line) => '      '.$line, explode("\n", $code)));
+
+        return Registration::manual(
+            "$provider extends {$this->parentClass} and has no $method(). Adding one would override the parent's, ".
+            "so add this to $method() by hand, after parent::$method():\n$indented"
+        );
     }
 
     private function ensureMethod(PhpFileEditor $editor, string $method): void

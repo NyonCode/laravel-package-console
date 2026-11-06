@@ -80,9 +80,9 @@ Without `--event`, `handle()` takes `object $event` and nothing is registered.
 
 **Registration**
 
-| Toolkit | Plain |
-|---|---|
-| `->hasEvent(PostPublished::class, NotifySubscribers::class)` | `Event::listen(PostPublished::class, NotifySubscribers::class);` |
+| Toolkit | Spatie | Plain |
+|---|---|---|
+| `->hasEvent(PostPublished::class, NotifySubscribers::class)` | the plain code, in `packageBooted()` | `Event::listen(PostPublished::class, NotifySubscribers::class);` |
 
 Each pair of event and listener gets its own call. With the toolkit, a pair that is already listed
 in a `->hasEvents([...])` call is not added again.

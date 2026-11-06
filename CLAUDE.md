@@ -58,9 +58,11 @@ Supported dependency range: Symfony `^7.2|^8.0` and Pest `^3.8|^4.0`. Run the su
 **Registration in the service provider.**
 - `afterGenerate()` calls `ProviderRegistrar`, which returns a `Registration` (registered / already / manual / no-provider) printed by `report()`.
 - The registrar edits the main provider with `PhpFileEditor`: nikic/php-parser finds positions, and changes are spliced into the original text, so formatting is preserved.
-- It picks the mode from the file itself, not from `composer.json`:
-  - if `configure()` exists, it extends the `$packager` chain (`->hasX()`, or adds an item to an existing array argument);
-  - otherwise it appends standard Laravel calls to `register()`/`boot()`, creating the method if it is missing.
+- It picks the mode from the file itself (`PhpFileEditor::mode()`), not from `composer.json`:
+  - toolkit, when `configure()` exists: it extends the `$packager` chain (`->hasX()`, or adds an item to an existing array argument);
+  - spatie, when `configurePackage()` exists (spatie/laravel-package-tools): it appends additive `->hasX()` calls; anything the package tools have no call for goes into `packageBooted()`/`packageRegistered()`. Never add `register()`/`boot()` there, because they would override Spatie's;
+  - plain: it appends standard Laravel calls to `register()`/`boot()`. It creates a missing method only when the provider extends `Illuminate\Support\ServiceProvider`; with any other parent it returns a MANUAL warning with the code.
+- `Package::shortName()` follows the provider (toolkit `hasShortName()`/`Str::kebab(name)`, spatie `Str::after(name, 'laravel-')`) before falling back to the Composer name. `Package::translationsPath()` is `resources/lang` in spatie mode.
 - Every operation must stay idempotent. `tests/Feature/ProviderRegistrationTest.php` runs every generator twice and asserts the provider is unchanged.
 
 **`package:init`** writes `composer.json` through `Support/ComposerJson`, which keeps Composer's key order and empty objects and only fills in missing values. It then calls `make:provider --main` and `make:config` and scaffolds `stubs/package/*`. Version constraints per Laravel version are in the `PackageInitCommand::LARAVEL` constant.

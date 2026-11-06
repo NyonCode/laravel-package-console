@@ -6,14 +6,27 @@
  * valid PHP and pass Laravel Pint.
  */
 
-dataset('modes', ['toolkit' => true, 'plain' => false]);
+dataset('modes', ['toolkit', 'plain', 'spatie']);
 
-it('generates every file where Laravel and the toolkit expect it', function (bool $toolkit) {
-    $dir = initPackage(toolkit: $toolkit);
+/**
+ * A new package with the toolkit, a new plain one, or an existing spatie/laravel-package-tools one.
+ */
+function packageIn(string $mode): string
+{
+    return match ($mode) {
+        'toolkit' => initPackage(),
+        'plain' => initPackage(toolkit: false),
+        'spatie' => spatiePackage(),
+    };
+}
+
+it('generates every file where Laravel and the toolkit expect it', function (string $mode) {
+    $dir = packageIn($mode);
 
     buildFullPackage($dir);
 
-    $migrations = $toolkit
+    $lang = $mode === 'spatie' ? 'resources/lang' : 'lang';
+    $migrations = $mode !== 'plain'
         ? ['add_slug_to_posts_table.php', 'archive_old_posts.php', 'create_posts_table.php']
         : array_map(fn (string $file) => basename($file), glob("$dir/database/migrations/*.php"));
 
@@ -30,11 +43,11 @@ it('generates every file where Laravel and the toolkit expect it', function (boo
         'database/factories/PostFactory.php',
         ...array_map(fn (string $file) => "database/migrations/$file", $migrations),
         'database/seeders/PostSeeder.php',
-        'lang/cs.json',
-        'lang/en/messages.php',
+        ...($mode === 'spatie' ? [] : ['lang/cs.json', 'lang/en/messages.php']),
         'phpstan.neon.dist',
         'phpunit.xml',
         'pint.json',
+        ...($mode === 'spatie' ? ['resources/lang/cs.json', 'resources/lang/en/messages.php'] : []),
         'resources/views/components/alert.blade.php',
         'resources/views/components/badge.blade.php',
         'resources/views/mail/hello.blade.php',
@@ -94,13 +107,13 @@ it('generates every file where Laravel and the toolkit expect it', function (boo
         'tests/Unit/SlugTest.php',
     ]);
 
-    if (! $toolkit) {
+    if ($mode === 'plain') {
         expect($migrations)->each->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_\w+\.php$/');
     }
 })->with('modes');
 
-it('produces valid PHP that passes Laravel Pint', function (bool $toolkit) {
-    $dir = initPackage(toolkit: $toolkit);
+it('produces valid PHP that passes Laravel Pint', function (string $mode) {
+    $dir = packageIn($mode);
 
     buildFullPackage($dir);
 
@@ -113,23 +126,24 @@ it('produces valid PHP that passes Laravel Pint', function (bool $toolkit) {
     expectValidPhp("$dir/anvil");
     expectPintClean($dir);
 
-    expect(json_decode((string) file_get_contents("$dir/lang/cs.json"), true))->toBe([]);
+    expect(json_decode((string) file_get_contents("$dir/".($mode === 'spatie' ? 'resources/lang' : 'lang').'/cs.json'), true))->toBe([]);
 })->with('modes');
 
-it('builds the expected service provider', function (bool $toolkit, string $fixture) {
-    $dir = initPackage(toolkit: $toolkit);
+it('builds the expected service provider', function (string $mode, string $fixture) {
+    $dir = packageIn($mode);
 
     buildFullPackage($dir);
 
     expect(file_get_contents("$dir/src/BlogServiceProvider.php"))
         ->toBe(file_get_contents(__DIR__."/../Fixtures/$fixture"));
 })->with([
-    'toolkit' => [true, 'ToolkitServiceProvider.php'],
-    'plain' => [false, 'PlainServiceProvider.php'],
+    'toolkit' => ['toolkit', 'ToolkitServiceProvider.php'],
+    'plain' => ['plain', 'PlainServiceProvider.php'],
+    'spatie' => ['spatie', 'SpatieServiceProvider.php'],
 ]);
 
-it('leaves the provider and composer.json untouched when everything is generated again', function (bool $toolkit) {
-    $dir = initPackage(toolkit: $toolkit);
+it('leaves the provider and composer.json untouched when everything is generated again', function (string $mode) {
+    $dir = packageIn($mode);
 
     buildFullPackage($dir);
     $provider = file_get_contents("$dir/src/BlogServiceProvider.php");
@@ -146,8 +160,8 @@ it('leaves the provider and composer.json untouched when everything is generated
     }
 })->with('modes');
 
-it('reports what it registered', function (bool $toolkit, array $expected) {
-    $dir = initPackage(toolkit: $toolkit);
+it('reports what it registered', function (string $mode, array $expected) {
+    $dir = packageIn($mode);
 
     $outputs = buildFullPackage($dir);
 
@@ -155,7 +169,7 @@ it('reports what it registered', function (bool $toolkit, array $expected) {
         expect($outputs[$command])->toContain("DONE Registered $message in src/BlogServiceProvider.php.");
     }
 })->with([
-    'toolkit' => [true, [
+    'toolkit' => ['toolkit', [
         'make:route web' => "->hasRoutes(['web.php'])",
         'make:route api' => "'api.php' in ->hasRoutes()",
         'make:route channels' => "->hasBroadcastChannels(['channels.php'])",
@@ -168,7 +182,18 @@ it('reports what it registered', function (bool $toolkit, array $expected) {
         'make:component Alert' => "->hasComponentNamespace('blog', ...)",
         'make:lang messages' => '->hasTranslations()',
     ]],
-    'plain' => [false, [
+    'spatie' => ['spatie', [
+        'make:route web' => "->hasRoute('web')",
+        'make:route channels' => 'require routes/channels.php in packageBooted()',
+        'make:config blog-cache' => "'blog-cache' in ->hasConfigFile()",
+        'make:model Post' => "->hasMigration('create_posts_table')",
+        'make:command SyncPostsCommand' => '->hasCommand(SyncPostsCommand::class)',
+        'make:middleware EnsureAuthor' => 'aliasMiddleware() in packageBooted()',
+        'make:listener NotifySubscribers' => 'Event::listen() in packageBooted()',
+        'make:component Alert' => 'Blade::componentNamespace() in packageBooted()',
+        'make:lang messages' => '->hasTranslations()',
+    ]],
+    'plain' => ['plain', [
         'make:route web' => 'loadRoutesFrom() in boot()',
         'make:route channels' => 'require routes/channels.php in boot()',
         'make:config blog-cache' => 'mergeConfigFrom() in register() and publishes() in boot()',
@@ -181,8 +206,8 @@ it('reports what it registered', function (bool $toolkit, array $expected) {
     ]],
 ]);
 
-it('keeps the composer.json it generated valid and complete', function (bool $toolkit) {
-    $dir = initPackage(toolkit: $toolkit);
+it('keeps the composer.json it generated valid and complete', function (string $mode) {
+    $dir = packageIn($mode);
 
     buildFullPackage($dir);
 

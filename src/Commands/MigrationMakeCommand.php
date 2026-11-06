@@ -10,8 +10,8 @@ use Symfony\Component\Validator\Constraints as Assert;
 use function Symfony\Component\String\u;
 
 /**
- * With laravel-package-toolkit, migrations are timeless ("create_posts_table.php"); the
- * toolkit adds the timestamp when they are published. Otherwise they get the usual
+ * With laravel-package-toolkit or spatie/laravel-package-tools, migrations are timeless
+ * ("create_posts_table.php"); the timestamp is added when they are published. Otherwise they get the usual
  * timestamp prefix and are published with publishesMigrations().
  */
 #[AsCommand(name: 'make:migration', description: 'Create a new migration file')]
@@ -57,7 +57,9 @@ final class MigrationMakeCommand extends FileGenerateCommand
 
     protected function getFilePath(string $name): string
     {
-        $timeless = $this->package()->usesToolkit() && ! $this->option('timestamp');
+        // The toolkit and spatie/laravel-package-tools both add the timestamp when they publish.
+        $timeless = ($this->package()->usesToolkit() || $this->package()->providerMode() === 'spatie')
+            && ! $this->option('timestamp');
 
         return $this->package()->path(
             'database/migrations/'.($timeless ? '' : date('Y_m_d_His').'_').$name.'.php'

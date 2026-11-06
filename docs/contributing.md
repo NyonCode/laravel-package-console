@@ -52,9 +52,10 @@ access. Every test works in a fresh temporary package created by the helpers in
 
 | File | Covers |
 |---|---|
-| `tests/Feature/FullPackageTest.php` | a complete package in both modes: the exact file list, `php -l` and Pint on every file, the service providers compared byte for byte with `tests/Fixtures/*ServiceProvider.php`, and that running everything again changes nothing |
+| `tests/Feature/FullPackageTest.php` | a complete package in all three modes: the exact file list, `php -l` and Pint on every file, the service providers compared byte for byte with `tests/Fixtures/*ServiceProvider.php`, and that running everything again changes nothing |
 | `tests/Feature/CommandOptionsTest.php` | every option of every generator |
 | `tests/Feature/ProviderRegistrationTest.php` | registration edge cases: existing calls, multi-line arrays, split `$packager` statements, missing methods, manual warnings |
+| `tests/Feature/ExistingPackageTest.php` | existing packages: spatie/laravel-package-tools providers, providers with a parent class, providers composer.json does not list, short names from the provider, test setup and CI that must not be overridden |
 | `tests/Feature/PackageInitTest.php` | `composer.json` per Laravel version, the CI matrix, existing packages, prompts |
 | `tests/Unit/*` | `PhpFileEditor`, `Package`, `ComposerJson`, and the documentation |
 
@@ -68,8 +69,13 @@ composer test:integration
 ```
 
 The integration suite proves that the generated code works in Laravel, not only that it looks
-right. For the toolkit and for a plain provider, on Laravel 12 and on Laravel 13 (four packages),
-it:
+right. For three providers, on Laravel 12 and on Laravel 13 (six packages), it:
+
+- a new package with the toolkit;
+- a new package with a plain provider;
+- an existing package built on spatie/laravel-package-tools.
+
+For each of them, it:
 
 1. builds a complete package with every generator;
 2. fills in a few stubs as an author would (a route, a translation, a JSON translation);

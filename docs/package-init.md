@@ -175,6 +175,7 @@ vendor/bin/pest
     "require-dev": {
         "larastan/larastan": "^3.0",
         "laravel/pint": "^1.24",
+        "nyoncode/laravel-package-console": "^1.0",
         "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^3.8|^4.0",
         "pestphp/pest-plugin-laravel": "^3.2|^4.0"
@@ -219,6 +220,8 @@ vendor/bin/pest
 - Factories get their own PSR-4 entry so they can live in `database/factories`. See
   [make:factory](database.md#makefactory).
 - Without the toolkit, `nyoncode/laravel-package-toolkit` is not required.
+- Anvil itself is in `require-dev`, so the `anvil` launcher works as soon as `composer update` has
+  run.
 
 ## Laravel versions
 
@@ -271,14 +274,16 @@ Each job requires `laravel/framework` and `orchestra/testbench` at the matrix ve
 | Publish tags | `blog::config` | `blog-config` |
 | Migrations | timeless (`create_posts_table.php`) | timestamped |
 
-If you pass neither option, `package:init` asks. Without a prompt (`--no-interaction`) it uses
-the toolkit in three cases:
+For a **new package**, one without a service provider, `package:init` asks when you pass neither
+option. Without a prompt (`--no-interaction`), it uses the toolkit.
 
-- the package already requires it;
-- there is no `composer.json` yet;
-- the package has no main provider yet.
+A package that **already has a provider** keeps its dependencies. The provider's own style
+decides how generators register, so `package:init` does not ask and adds the toolkit only with
+an explicit `--toolkit`. In that case it warns that the existing provider keeps its style:
 
-Otherwise it keeps the plain provider you have.
+```
+  WARN src/BlogServiceProvider.php is not a laravel-package-toolkit provider, so generators keep registering in its own style.
+```
 
 The two service providers `package:init` creates:
 
@@ -338,8 +343,47 @@ Every later `make:*` command [registers its file](service-provider.md) in this p
 
 ## Running it on an existing package
 
-`package:init` is safe to run on a package that already has a `composer.json`. It **completes**
-the file and keeps what is there:
+`package:init` is safe to run on a package that already exists, whether its provider is a
+plain Laravel `ServiceProvider`, a toolkit provider or a
+[spatie/laravel-package-tools](https://github.com/spatie/laravel-package-tools) provider.
+
+```bash
+composer require --dev nyoncode/laravel-package-console
+vendor/bin/anvil package:init
+```
+
+```
+  UPDATE composer.json
+
+  DONE Found src/BlogServiceProvider.php and registered Acme\Blog\BlogServiceProvider in composer.json "extra.laravel.providers".
+  INFO Config [config/blog.php] created successfully.
+  DONE Registered ->hasConfigFile() in src/BlogServiceProvider.php.
+  …
+  SKIP   phpunit.xml (phpunit.xml.dist exists)
+  …
+  SKIP   .github/workflows/tests.yml (.github/workflows/run-tests.yml exists)
+
+  🎉  Package ready (with spatie/laravel-package-tools).
+```
+
+### The service provider
+
+**Your provider is kept.** `package:init` creates a provider only when the package has none.
+Generators then register in your provider, in [its own style](how-it-works.md#registration-modes).
+
+**A provider that composer.json does not list is found.** When `extra.laravel.providers` is
+missing or names no existing class, `package:init` looks for a class in the package's source
+whose parent class name ends in `ServiceProvider`:
+
+- `{Package}ServiceProvider` in the root namespace is preferred;
+- otherwise the least nested class wins, then the first in alphabetical order.
+
+The class it finds goes first in `extra.laravel.providers`, so Laravel's package discovery loads
+it. No second provider is created.
+
+### composer.json
+
+`package:init` **completes** the file and keeps what is there:
 
 - `name` is set from `--name`, or from the answer to the prompt, whose default is the current
   name.
@@ -350,16 +394,32 @@ the file and keeps what is there:
   existing constraint, such as `"orchestra/testbench": "^10.5"`, is kept.
 - If an existing PSR-4 entry maps a namespace to `src/`, Anvil keeps it as the root namespace and
   only adds the factories entry.
+- The toolkit is only added with `--toolkit` (see
+  [Toolkit or plain service provider](#toolkit-or-plain-service-provider)).
 - The file is saved with 4-space indentation and the top-level keys in Composer's usual order.
 
-The other files are skipped when they exist:
+### Files
+
+Files that exist are skipped:
 
 ```
   SKIP   README.md (exists)
 ```
 
-`--force` overwrites the scaffolded files. It does not touch the existing service provider or
-the config file.
+So are files that would clash with what the package already has:
+
+| Not written | When the package has | Why |
+|---|---|---|
+| `phpunit.xml` | `phpunit.xml.dist` or `phpunit.dist.xml` | PHPUnit would prefer `phpunit.xml` and ignore yours |
+| `.github/workflows/tests.yml` | a workflow that runs `pest`, `phpunit` or `composer test` | the tests would run twice |
+| `tests/Pest.php`, `tests/ArchTest.php`, `tests/Feature/ServiceProviderTest.php` | `tests/TestCase.php` | they assume Anvil's `TestCase`; your test setup stays as it is |
+| `phpstan.neon.dist` | `phpstan.neon` or `phpstan.dist.neon` | |
+| `pint.json` | `.pint.json` | |
+| `LICENSE.md` | `LICENSE`, `LICENSE.txt` or `license.md` | |
+| `README.md` | `readme.md`, `README` or `README.rst` | |
+
+`--force` overwrites the scaffolded files, including the ones above. It does not touch the
+existing service provider or the config file.
 
 ## make:structure
 

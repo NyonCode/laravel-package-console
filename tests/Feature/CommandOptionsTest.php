@@ -7,30 +7,6 @@ use Symfony\Component\Console\Tester\ApplicationTester;
  * The options of every generator, one behaviour per test.
  */
 
-/**
- * Run a command that must succeed and return its output.
- */
-function generate(string $dir, string $command, array $input = []): string
-{
-    [$code, $output] = anvil($dir, $command, $input);
-
-    expect($code)->toBe(0, $output);
-
-    return $output;
-}
-
-function contents(string $dir, string $path): string
-{
-    expect("$dir/$path")->toBeFile();
-
-    return (string) file_get_contents("$dir/$path");
-}
-
-function provider(string $dir): string
-{
-    return contents($dir, 'src/BlogServiceProvider.php');
-}
-
 describe('make:model', function () {
     it('creates only the model by default', function () {
         $dir = initPackage();

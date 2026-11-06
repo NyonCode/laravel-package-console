@@ -26,7 +26,10 @@ final class StructureMakeCommand extends BaseCommand
         $files = new Filesystem;
         $created = 0;
 
-        foreach (self::DIRECTORIES as $directory) {
+        // spatie/laravel-package-tools loads translations from resources/lang.
+        $directories = str_replace('lang', $this->package()->translationsPath(), self::DIRECTORIES);
+
+        foreach ($directories as $directory) {
             $path = $this->package()->path($directory);
 
             if ($files->isDirectory($path)) {

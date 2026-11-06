@@ -189,3 +189,89 @@ function expectPintClean(string $dir): void
 
     expect($code)->toBe(0, implode("\n", $output));
 }
+
+/**
+ * An existing package built on spatie/laravel-package-tools (the layout of Spatie's package
+ * skeleton), completed with package:init.
+ *
+ * @param  bool  $listed  Whether composer.json lists the provider in extra.laravel.providers.
+ */
+function spatiePackage(bool $listed = true, string $name = 'laravel-blog', bool $init = true, array $options = []): string
+{
+    $dir = tempPackage(array_filter([
+        'name' => 'acme/laravel-blog',
+        'require' => ['php' => '^8.2', 'spatie/laravel-package-tools' => '^1.16'],
+        'autoload' => ['psr-4' => ['Acme\\Blog\\' => 'src/']],
+        'extra' => $listed ? ['laravel' => ['providers' => ['Acme\\Blog\\BlogServiceProvider']]] : null,
+    ]));
+
+    mkdir("$dir/src");
+    file_put_contents("$dir/src/BlogServiceProvider.php", <<<PHP
+<?php
+
+namespace Acme\Blog;
+
+use Spatie\LaravelPackageTools\Package;
+use Spatie\LaravelPackageTools\PackageServiceProvider;
+
+class BlogServiceProvider extends PackageServiceProvider
+{
+    public function configurePackage(Package \$package): void
+    {
+        /*
+         * This class is a Package Service Provider
+         *
+         * More info: https://github.com/spatie/laravel-package-tools
+         */
+        \$package
+            ->name('$name');
+    }
+}
+
+PHP);
+
+    if ($init) {
+        [$code, $output] = anvil($dir, 'package:init', ['--author' => 'Jane Doe', '--email' => 'jane@example.com', ...$options]);
+
+        expect($code)->toBe(0, $output);
+    }
+
+    return $dir;
+}
+
+/**
+ * Run a command that must succeed and return its output.
+ */
+function generate(string $dir, string $command, array $input = []): string
+{
+    [$code, $output] = anvil($dir, $command, $input);
+
+    expect($code)->toBe(0, $output);
+
+    return $output;
+}
+
+function contents(string $dir, string $path): string
+{
+    expect("$dir/$path")->toBeFile();
+
+    return (string) file_get_contents("$dir/$path");
+}
+
+function provider(string $dir): string
+{
+    return contents($dir, 'src/BlogServiceProvider.php');
+}
+
+/**
+ * Replace the body of configure() / boot() in the main provider.
+ */
+function rewriteProvider(string $dir, string $search, string $replace): void
+{
+    $path = "$dir/src/BlogServiceProvider.php";
+    $code = file_get_contents($path);
+
+    expect($code)->toContain($search);
+
+    file_put_contents($path, str_replace($search, $replace, $code));
+}

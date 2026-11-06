@@ -33,6 +33,12 @@ final class PhpFileEditor
 
     private NodeFinder $finder;
 
+    /**
+     * The method that holds the fluent package description: configure() for
+     * laravel-package-toolkit, configurePackage() for spatie/laravel-package-tools.
+     */
+    private string $configurationMethod = 'configure';
+
     public function __construct(private string $code)
     {
         $this->finder = new NodeFinder;
@@ -179,6 +185,115 @@ final class PhpFileEditor
     }
 
     /**
+     * How the provider describes the package: "toolkit" (configure(Packager)), "spatie"
+     * (configurePackage(Package)) or "plain" (register()/boot()).
+     */
+    public function mode(): string
+    {
+        $stmts = $this->parse();
+
+        return match (true) {
+            $this->findMethod($stmts, 'configure') !== null => 'toolkit',
+            $this->findMethod($stmts, 'configurePackage') !== null => 'spatie',
+            default => 'plain',
+        };
+    }
+
+    /**
+     * Read the Packager chain from another method, e.g. configurePackage().
+     */
+    public function usingConfigurationMethod(string $method): self
+    {
+        $this->configurationMethod = $method;
+
+        return $this;
+    }
+
+    /**
+     * The fully qualified class the provider extends, resolved through its imports.
+     */
+    public function parentClass(): ?string
+    {
+        $stmts = $this->parse();
+        $extends = $this->findClass($stmts)->extends;
+
+        if ($extends === null) {
+            return null;
+        }
+
+        if ($extends->isFullyQualified()) {
+            return $extends->toString();
+        }
+
+        $first = $extends->getFirst();
+        $namespace = $this->finder->findFirstInstanceOf($stmts, Namespace_::class);
+
+        foreach ($this->finder->findInstanceOf($stmts, Use_::class) as $use) {
+            if ($use->type !== Use_::TYPE_NORMAL) {
+                continue;
+            }
+
+            foreach ($use->uses as $item) {
+                if (strcasecmp($item->getAlias()->toString(), $first) === 0) {
+                    $rest = $extends->slice(1);
+
+                    return $item->name->toString().($rest !== null ? '\\'.$rest->toString() : '');
+                }
+            }
+        }
+
+        $prefix = $namespace?->name?->toString();
+
+        return ($prefix !== null ? $prefix.'\\' : '').$extends->toString();
+    }
+
+    /**
+     * The value of a Packager call's first argument when it is a string literal,
+     * e.g. "Blog" for ->name('Blog').
+     */
+    public function packagerStringArgument(string $method): ?string
+    {
+        foreach ($this->allPackagerCalls($this->parse()) as $call) {
+            if ($call->name instanceof Node\Identifier && $call->name->toString() === $method) {
+                $value = $call->getArgs()[0]->value ?? null;
+
+                return $value instanceof Node\Scalar\String_ ? $value->value : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Replace the arguments of the first Packager call named $method.
+     *
+     * @return bool False when there is no such call.
+     */
+    public function replacePackagerCallArguments(string $method, string $arguments): bool
+    {
+        foreach ($this->allPackagerCalls($this->parse()) as $call) {
+            if (! $call->name instanceof Node\Identifier || $call->name->toString() !== $method) {
+                continue;
+            }
+
+            $args = $call->getArgs();
+
+            if ($args !== []) {
+                $start = $args[0]->getStartFilePos();
+                $this->splice($start, $arguments, end($args)->getEndFilePos() - $start + 1);
+            } else {
+                $open = strpos($this->code, '(', $call->name->getEndFilePos() + 1);
+                $close = $call->getEndFilePos();
+                $this->splice($open + 1, $arguments, $close - $open - 1);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Calls made on the Packager in configure(), in order, across every statement
      * that starts with the Packager variable.
      *
@@ -198,12 +313,12 @@ final class PhpFileEditor
     public function appendPackagerCall(string $call): self
     {
         $stmts = $this->parse();
-        $configure = $this->findMethod($stmts, 'configure')
-            ?? throw new RuntimeException('Method [configure()] not found.');
+        $configure = $this->findMethod($stmts, $this->configurationMethod)
+            ?? throw new RuntimeException("Method [{$this->configurationMethod}()] not found.");
         $chain = $this->packagerChain($stmts);
 
         if ($chain === null) {
-            return $this->appendToMethod('configure', '$'.$this->packagerVariable($configure)."\n".self::INDENT."->$call;");
+            return $this->appendToMethod($this->configurationMethod, '$'.$this->packagerVariable($configure)."\n".self::INDENT."->$call;");
         }
 
         $outer = $chain->expr;
@@ -322,7 +437,7 @@ final class PhpFileEditor
      */
     private function packagerChains(array $stmts): array
     {
-        $configure = $this->findMethod($stmts, 'configure');
+        $configure = $this->findMethod($stmts, $this->configurationMethod);
 
         if ($configure === null) {
             return [];
@@ -366,7 +481,9 @@ final class PhpFileEditor
     {
         $param = $configure->params[0]->var ?? null;
 
-        return $param instanceof Variable && is_string($param->name) ? $param->name : 'packager';
+        return $param instanceof Variable && is_string($param->name)
+            ? $param->name
+            : ($this->configurationMethod === 'configurePackage' ? 'package' : 'packager');
     }
 
     /**

@@ -20,11 +20,15 @@ final class Registration
     private function __construct(
         public readonly string $status,
         public readonly string $message = '',
+        public readonly ?string $warning = null,
     ) {}
 
-    public static function registered(string $message): self
+    /**
+     * @param  string|null  $warning  What could not be registered and has to be added by hand.
+     */
+    public static function registered(string $message, ?string $warning = null): self
     {
-        return new self(self::REGISTERED, $message);
+        return new self(self::REGISTERED, $message, $warning);
     }
 
     public static function already(): self

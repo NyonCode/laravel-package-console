@@ -159,6 +159,13 @@ abstract class GenerateCommand extends BaseCommand
      */
     protected function report(Registration $registration): void
     {
+        if ($registration->status === Registration::REGISTERED && $registration->warning !== null) {
+            $this->output()->writeln('  <fg=green;options=bold>DONE</> '.$registration->message);
+            $this->output()->writeln('  <fg=yellow;options=bold>WARN</> '.$registration->warning);
+
+            return;
+        }
+
         match ($registration->status) {
             Registration::REGISTERED => $this->output()->writeln('  <fg=green;options=bold>DONE</> '.$registration->message),
             Registration::MANUAL, Registration::NO_PROVIDER => $this->output()->writeln('  <fg=yellow;options=bold>WARN</> '.$registration->message),

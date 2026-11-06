@@ -34,9 +34,9 @@ return [
 
 **Registration**
 
-| Toolkit | Plain |
-|---|---|
-| `->hasConfig()` merges and publishes every file in `config/`, so later config files need nothing more | each file is merged under its own key and published with the `blog-config` tag |
+| Toolkit | Spatie | Plain |
+|---|---|---|
+| `->hasConfig()` merges and publishes every file in `config/`, so later config files need nothing more | `->hasConfigFile()`; a second file extends it to `->hasConfigFile(['blog', 'blog-cache'])` | each file is merged under its own key and published with the `blog-config` tag |
 
 ```php title="Plain provider, after make:config blog-cache"
 public function register(): void
@@ -56,7 +56,7 @@ Applications publish the config with:
 
 ```bash
 php artisan vendor:publish --tag="blog::config"   # toolkit
-php artisan vendor:publish --tag="blog-config"    # plain
+php artisan vendor:publish --tag="blog-config"    # plain and spatie
 ```
 
 `package:init` already runs `make:config` for the main config file, unless you pass `--no-config`.
@@ -131,10 +131,10 @@ use Illuminate\Support\Facades\Broadcast;
 
 **Registration**
 
-| File | Toolkit | Plain |
-|---|---|---|
-| `web`, `api`, others | `->hasRoutes(['web.php', 'api.php'])` | `$this->loadRoutesFrom(__DIR__.'/../routes/web.php');` |
-| `channels` | `->hasBroadcastChannels(['channels.php'])` | `require __DIR__.'/../routes/channels.php';` |
+| File | Toolkit | Spatie | Plain |
+|---|---|---|---|
+| `web`, `api`, others | `->hasRoutes(['web.php', 'api.php'])` | `->hasRoute('web')`, one call per file | `$this->loadRoutesFrom(__DIR__.'/../routes/web.php');` |
+| `channels` | `->hasBroadcastChannels(['channels.php'])` | the plain code, in `packageBooted()` | `require __DIR__.'/../routes/channels.php';` |
 
 Channels are broadcast authorisation callbacks, not routes, so they are registered separately.
 For channel classes, see [make:channel](events-queues-and-mail.md#makechannel).

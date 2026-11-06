@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NyonCode\LaravelPackageConsole\Support;
 
 use RuntimeException;
+use Symfony\Component\Finder\Finder;
 
 use function Symfony\Component\String\u;
 
@@ -63,12 +64,99 @@ final class Package
     }
 
     /**
-     * Short kebab-case name used for config keys, view/translation namespaces and publish tags,
-     * e.g. "acme/laravel-blog" -> "blog".
+     * Short kebab-case name used for config keys, view/translation namespaces and publish tags.
+     *
+     * It is the name the provider gives the package, so it matches what the provider registers:
+     * - laravel-package-toolkit: ->hasShortName('blog'), else Str::kebab() of ->name('Blog');
+     * - spatie/laravel-package-tools: ->name('laravel-blog') without the "laravel-" prefix;
+     * - otherwise it is derived from the Composer name: "acme/laravel-blog" -> "blog".
      */
     public function shortName(): string
     {
+        $editor = $this->mainProviderEditor();
+
+        if ($editor !== null) {
+            if ($editor->mode() === 'toolkit') {
+                $short = $editor->packagerStringArgument('hasShortName');
+                $name = $editor->packagerStringArgument('name');
+
+                if ($short !== null && $short !== '') {
+                    return $short;
+                }
+
+                if ($name !== null && $name !== '') {
+                    return self::laravelKebab($name);
+                }
+            }
+
+            if ($editor->mode() === 'spatie') {
+                $name = $editor->usingConfigurationMethod('configurePackage')->packagerStringArgument('name');
+
+                if ($name !== null && $name !== '') {
+                    return str_contains($name, 'laravel-') ? substr($name, strpos($name, 'laravel-') + 8) : $name;
+                }
+            }
+        }
+
         return self::shortNameFor($this->name());
+    }
+
+    /**
+     * How the main provider registers resources: "toolkit", "spatie" or "plain"; null without one.
+     */
+    public function providerMode(): ?string
+    {
+        return $this->mainProviderEditor()?->mode();
+    }
+
+    /**
+     * Directory of the package's translations: spatie/laravel-package-tools loads them from
+     * resources/lang, everything else from lang.
+     */
+    public function translationsPath(): string
+    {
+        return $this->providerMode() === 'spatie' ? 'resources/lang' : 'lang';
+    }
+
+    /**
+     * Service providers in the package's source that composer.json does not list yet:
+     * classes whose parent class name ends in "ServiceProvider". The conventional
+     * "{Package}ServiceProvider" comes first.
+     *
+     * @return list<string>
+     */
+    public function discoverProviders(): array
+    {
+        $found = [];
+
+        foreach ($this->psr4() as $namespace => $directory) {
+            $root = $this->path($directory);
+
+            if (! is_dir($root) || str_contains($namespace, '\\Database\\')) {
+                continue;
+            }
+
+            $files = (new Finder)->files()->in($root)->depth('< 3')->name('*.php');
+
+            foreach ($files as $file) {
+                $code = (string) file_get_contents($file->getPathname());
+
+                if (! preg_match('/^namespace\s+([^;]+);/m', $code, $ns)
+                    || ! preg_match('/^(?:final\s+|readonly\s+)*class\s+(\w+)\s+extends\s+\\\\?([\w\\\\]*ServiceProvider)\b/m', $code, $class)
+                    || preg_match('/^abstract\s+class/m', $code)) {
+                    continue;
+                }
+
+                $found[] = trim($ns[1]).'\\'.$class[1];
+            }
+        }
+
+        $found = array_values(array_unique(array_diff($found, $this->providers())));
+        $preferred = $this->rootNamespaceOrNull() !== null ? $this->rootNamespaceOrNull().'\\'.$this->defaultProviderName() : null;
+
+        usort($found, fn (string $a, string $b) => [$a !== $preferred, substr_count($a, '\\'), $a] <=> [$b !== $preferred, substr_count($b, '\\'), $b]);
+
+        return $found;
     }
 
     public static function shortNameFor(string $composerName): string
@@ -185,6 +273,43 @@ final class Package
         $provider = $this->mainProvider();
 
         return $provider !== null ? $this->pathForClass($provider) : null;
+    }
+
+    private function mainProviderEditor(): ?PhpFileEditor
+    {
+        $path = $this->mainProviderPath();
+
+        if ($path === null) {
+            return null;
+        }
+
+        try {
+            return PhpFileEditor::fromFile($path);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function rootNamespaceOrNull(): ?string
+    {
+        try {
+            return $this->rootNamespace();
+        } catch (RuntimeException) {
+            return null;
+        }
+    }
+
+    /**
+     * Laravel's Str::kebab(), which the toolkit uses to derive the short name.
+     */
+    private static function laravelKebab(string $value): string
+    {
+        if (! ctype_lower($value)) {
+            $value = (string) preg_replace('/\s+/u', '', ucwords($value));
+            $value = mb_strtolower((string) preg_replace('/(.)(?=[A-Z])/u', '$1-', $value), 'UTF-8');
+        }
+
+        return $value;
     }
 
     /**

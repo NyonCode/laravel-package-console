@@ -2,6 +2,38 @@
 
 All notable changes to `nyoncode/laravel-package-console` are documented in this file.
 
+## 1.0.1 - 2026-11-07
+
+Installing Anvil into an existing package is now safe.
+
+### Added
+
+- Support for providers built on `spatie/laravel-package-tools`. Generators add `->hasX()` calls
+  to `configurePackage()` (`hasConfigFile`, `hasRoute`, `hasMigration`, `hasCommand`,
+  `hasViews`, `hasTranslations`). Everything else goes into the `packageBooted()` hook.
+  Translations go to `resources/lang`, and migrations are timeless.
+- `package:init` finds a service provider that `extra.laravel.providers` does not list, and
+  registers it instead of creating a second one.
+- `package:init` adds `nyoncode/laravel-package-console` to `require-dev`, so `php anvil` works
+  after `composer update`.
+
+### Fixed
+
+- Anvil no longer adds `register()` or `boot()` to a provider that extends a base class other
+  than `Illuminate\Support\ServiceProvider`, which overrode the parent's methods. With a Spatie
+  provider this stopped the package from booting. Anvil now adds to the methods the provider
+  has, and prints the code for the rest.
+- In a package that already has a provider, `package:init` no longer adds
+  `nyoncode/laravel-package-toolkit` without `--toolkit`.
+- `package:init` no longer writes files that clash with an existing setup:
+  - `phpunit.xml`, which overrode `phpunit.xml.dist`;
+  - a second CI workflow that runs the tests;
+  - Pest files when `tests/TestCase.php` exists;
+  - `phpstan.neon.dist`, `pint.json`, `LICENSE.md` or `README.md` when a variant exists.
+- The short name follows the provider: the toolkit's `hasShortName()`/`name()`, and
+  spatie's `name()`. Config files, view and translation namespaces and tags then match what
+  the provider loads.
+
 ## 1.0.0 - 2026-11-06
 
 ### Added

@@ -49,11 +49,15 @@ code you wrote, so running a command twice changes nothing.
 - **34 `make:*` commands**: models, migrations, factories, seeders, controllers, middleware,
   routes, config, views, Blade components, translations, mailables, jobs, events, listeners,
   console commands, tests and more. See the [command reference](commands.md).
-- **Two registration modes**, chosen automatically from your service provider:
+- **Three registration modes**, chosen automatically from your service provider:
   - [nyoncode/laravel-package-toolkit](https://github.com/NyonCode/laravel-package-toolkit), with
     `->hasX()` calls in `configure(Packager $packager)`;
+  - [spatie/laravel-package-tools](https://github.com/spatie/laravel-package-tools), with
+    `->hasX()` calls in `configurePackage(Package $package)`;
   - a plain `Illuminate\Support\ServiceProvider`, with the standard Laravel calls in
     `register()`/`boot()`.
+- **Existing packages welcome**: `package:init` completes what is there and keeps your
+  provider, test setup and CI.
 - **Your own stubs**: put a copy of any stub in `stubs/anvil/` in your package and Anvil uses it
   instead of the built-in one.
 
@@ -68,7 +72,7 @@ code you wrote, so running a command twice changes nothing.
 
 - [Creating a package](package-init.md): `package:init`, `make:structure`
 - [How Anvil reads your package](how-it-works.md): namespaces, the short name, the main provider, `package:info`
-- [Service provider registration](service-provider.md): exactly what each generator adds, in toolkit and plain mode
+- [Service provider registration](service-provider.md): exactly what each generator adds, in toolkit, spatie and plain mode
 
 **Generators**
 

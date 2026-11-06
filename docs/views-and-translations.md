@@ -37,9 +37,9 @@ Options: `-f`/`--force`.
 
 **Registration**
 
-| Toolkit | Plain |
-|---|---|
-| `->hasViews()` | `$this->loadViewsFrom(__DIR__.'/../resources/views', 'blog');` and `$this->publishes([__DIR__.'/../resources/views' => resource_path('views/vendor/blog')], 'blog-views');` |
+| Toolkit | Spatie | Plain |
+|---|---|---|
+| `->hasViews()` | `->hasViews()` | `$this->loadViewsFrom(__DIR__.'/../resources/views', 'blog');` and `$this->publishes([__DIR__.'/../resources/views' => resource_path('views/vendor/blog')], 'blog-views');` |
 
 Applications can publish the views to `resources/views/vendor/blog` and override them there.
 
@@ -113,10 +113,10 @@ An anonymous component (`--view`) accepts a view name such as `forms.input` or `
 
 **Registration**
 
-| | Toolkit | Plain |
-|---|---|---|
-| views (every component) | `->hasViews()` | `loadViewsFrom()` + `publishes()`, as for `make:view` |
-| class namespace (class-based components) | `->hasComponentNamespace('blog', 'Acme\Blog\View\Components')` | `Blade::componentNamespace('Acme\Blog\View\Components', 'blog');` |
+| | Toolkit | Spatie | Plain |
+|---|---|---|---|
+| views (every component) | `->hasViews()` | `->hasViews()` | `loadViewsFrom()` + `publishes()`, as for `make:view` |
+| class namespace (class-based components) | `->hasComponentNamespace('blog', 'Acme\Blog\View\Components')` | the plain code, in `packageBooted()` | `Blade::componentNamespace('Acme\Blog\View\Components', 'blog');` |
 
 The component namespace maps the `blog` prefix to your component classes. That is how
 `<x-blog::forms.text-input />` finds `Acme\Blog\View\Components\Forms\TextInput`, and it is
@@ -151,13 +151,17 @@ return [
   Use it with __('blog::messages.key')
 ```
 
+With spatie/laravel-package-tools, the files go to `resources/lang/` instead of `lang/`
+(`resources/lang/en/messages.php`, `resources/lang/cs.json`), because that is where the package
+tools load translations from.
+
 PHP translation files are namespaced: `__('blog::messages.welcome')`. JSON files are not. Their
 keys are global strings, `__('Hello')`, merged with the application's own translations.
 
 **Registration**
 
-| Toolkit | Plain |
-|---|---|
-| `->hasTranslations()` | `$this->loadTranslationsFrom(__DIR__.'/../lang', 'blog');`, `$this->loadJsonTranslationsFrom(__DIR__.'/../lang');` and `$this->publishes([__DIR__.'/../lang' => lang_path('vendor/blog')], 'blog-translations');` |
+| Toolkit | Spatie | Plain |
+|---|---|---|
+| `->hasTranslations()` | `->hasTranslations()` | `$this->loadTranslationsFrom(__DIR__.'/../lang', 'blog');`, `$this->loadJsonTranslationsFrom(__DIR__.'/../lang');` and `$this->publishes([__DIR__.'/../lang' => lang_path('vendor/blog')], 'blog-translations');` |
 
 Applications publish the translations to `lang/vendor/blog` and override them there.

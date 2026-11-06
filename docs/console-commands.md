@@ -71,9 +71,9 @@ The signature may not contain `'` or `\`, because it is written into a single-qu
 
 **Registration**
 
-| Toolkit | Plain |
-|---|---|
-| `->hasCommands([SyncPostsCommand::class])`; later commands are added to the array | `$this->commands([SyncPostsCommand::class]);` inside `if ($this->app->runningInConsole())` in `boot()`; later commands are added to the array |
+| Toolkit | Spatie | Plain |
+|---|---|---|
+| `->hasCommands([SyncPostsCommand::class])`; later commands are added to the array | `->hasCommand(SyncPostsCommand::class)`, one call per command | `$this->commands([SyncPostsCommand::class]);` inside `if ($this->app->runningInConsole())` in `boot()`; later commands are added to the array |
 
 The class is imported into the provider. With the toolkit:
 

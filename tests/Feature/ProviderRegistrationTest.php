@@ -131,19 +131,6 @@ it('makes the first provider the main one and registers extra providers after it
     ]);
 });
 
-/**
- * Replace the body of configure() / boot() in the main provider.
- */
-function rewriteProvider(string $dir, string $search, string $replace): void
-{
-    $path = "$dir/src/BlogServiceProvider.php";
-    $code = file_get_contents($path);
-
-    expect($code)->toContain($search);
-
-    file_put_contents($path, str_replace($search, $replace, $code));
-}
-
 describe('toolkit mode', function () {
     it('treats a call without arguments as auto-discovery', function (string $call, string $command, array $input) {
         $dir = initPackage();
