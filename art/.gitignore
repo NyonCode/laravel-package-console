@@ -1,0 +1,2 @@
+# Fonts are read by render.sh but not committed (see README.md, Re-rendering).
+/fonts/

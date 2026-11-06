@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="art/logo/lockup-horizontal-dark.svg">
+    <img src="art/logo/lockup-horizontal.svg" alt="Anvil" width="320">
+  </picture>
+</p>
+
 # Anvil: an Artisan-like console for Laravel packages
 
 Anvil is `php artisan make:*` for people who build **Laravel packages**. It supports **Laravel 12 and 13**.
