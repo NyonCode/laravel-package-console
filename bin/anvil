@@ -1,0 +1,34 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Anvil — the Laravel Package Console. Run it from the root of the package you are developing:
+ *
+ *   php anvil make:model Post          (the launcher "package:init" puts in the package root)
+ *   vendor/bin/anvil package:init      (installed as a dev dependency of the package)
+ *   anvil package:init                 (installed globally with "composer global require")
+ */
+
+use NyonCode\LaravelPackageConsole\Kernel;
+
+$autoloaders = [
+    $GLOBALS['_composer_autoload_path'] ?? null,   // Composer >= 2.2 bin proxy
+    __DIR__.'/../../../autoload.php',              // vendor/nyoncode/laravel-package-console/bin
+    __DIR__.'/../vendor/autoload.php',             // this repository
+];
+
+foreach ($autoloaders as $autoloader) {
+    if ($autoloader !== null && is_file($autoloader)) {
+        require_once $autoloader;
+        break;
+    }
+}
+
+if (! class_exists(Kernel::class)) {
+    fwrite(STDERR, "Unable to find Composer's autoloader. Run \"composer install\".\n");
+    exit(1);
+}
+
+exit((new Kernel(getcwd() ?: null))->run());

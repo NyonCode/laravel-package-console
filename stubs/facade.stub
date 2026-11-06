@@ -1,9 +1,12 @@
 <?php
 
-namespace DummyNamespace;
+namespace {{ namespace }};
 
 use Illuminate\Support\Facades\Facade;
 
+/**
+ * @see {{ accessorClass }}
+ */
 class {{ class }} extends Facade
 {
     /**
@@ -11,6 +14,6 @@ class {{ class }} extends Facade
      */
     protected static function getFacadeAccessor(): string
     {
-        return '{{ facadeAccessor }}';
+        return {{ facadeAccessor }};
     }
 }

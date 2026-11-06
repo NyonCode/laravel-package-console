@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+
+use NyonCode\LaravelPackageConsole\Kernel;
+
+/*
+|--------------------------------------------------------------------------
+| Anvil
+|--------------------------------------------------------------------------
+|
+| Generators for developing this package: php anvil list
+|
+*/
+
+if (! is_file(__DIR__.'/vendor/autoload.php')) {
+    fwrite(STDERR, "Run \"composer install\" first.\n");
+    exit(1);
+}
+
+require __DIR__.'/vendor/autoload.php';
+
+if (! class_exists(Kernel::class)) {
+    fwrite(STDERR, "Anvil is not installed. Run \"composer require --dev nyoncode/laravel-package-console\".\n");
+    exit(1);
+}
+
+exit((new Kernel(__DIR__))->run());

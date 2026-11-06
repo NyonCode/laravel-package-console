@@ -1,0 +1,9 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+
+Route::prefix('{{ package }}/{{ name }}')
+    ->name('{{ package }}.{{ name }}.')
+    ->group(function () {
+        //
+    });

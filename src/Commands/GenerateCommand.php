@@ -5,158 +5,231 @@ namespace NyonCode\LaravelPackageConsole\Commands;
 use NyonCode\LaravelPackageConsole\Concerns\HasClassResolver;
 use NyonCode\LaravelPackageConsole\Concerns\HasNamespaceResolver;
 use NyonCode\LaravelPackageConsole\Concerns\HasReservedNames;
-use NyonCode\LaravelPackageConsole\Concerns\HasResolver;
 use NyonCode\LaravelPackageConsole\Concerns\HasStubResolver;
-use NyonCode\LaravelPackageConsole\Concerns\InputValidator;
 use NyonCode\LaravelPackageConsole\Support\Filesystem;
+use NyonCode\LaravelPackageConsole\Support\ProviderRegistrar;
+use NyonCode\LaravelPackageConsole\Support\Registration;
+use RuntimeException;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\String\Inflector\EnglishInflector;
+use Symfony\Component\Validator\Constraints as Assert;
 
+/**
+ * Generates a class from a stub (the package's counterpart of Laravel's GeneratorCommand).
+ *
+ * Subclasses set $type (label), $namespace (relative to the package root namespace) and
+ * $stub, and may override getReplacements() and afterGenerate().
+ */
 abstract class GenerateCommand extends BaseCommand
 {
     use HasClassResolver;
     use HasNamespaceResolver;
     use HasReservedNames;
-    use HasResolver;
     use HasStubResolver;
-    use InputValidator;
 
     protected Filesystem $files;
 
+    /**
+     * Human readable type of the generated file, e.g. "Model".
+     */
     protected string $type = '';
+
+    /**
+     * Namespace relative to the package root namespace, e.g. "Http\Controllers".
+     */
+    protected string $namespace = '';
 
     public function __construct()
     {
         parent::__construct();
         $this->files = new Filesystem;
-        $this->inflector = new EnglishInflector;
     }
 
-    public function handle(): ?bool
+    public function handle(): int
     {
-        if ($this->isReservedName($this->getNameInput())) {
-            $this->error('The name ['.$this->getNameInput().'] is reserved by PHP.');
+        $className = $this->classBasename($this->getNameInput());
+
+        if ($this->isReservedName($className)) {
+            $this->error('The name ['.$className.'] is reserved by PHP.');
 
             return static::FAILURE;
         }
 
-        $name = $this->qualifyClass($this->getNameInput());
-        $path = $this->getPath($name);
+        $class = $this->qualifyClass($this->getNameInput());
+        $path = $this->getPath($class);
 
-        if (
-            (! $this->hasOption('force') || ! $this->option('force'))
-            && $this->files->isFile($path)
-        ) {
-            $this->error('The '.$this->getType().' ['.$this->argument('name').'] already exists!');
-
+        if (! $this->writeFile($path, $this->tidyImports($this->buildClass($class), $this->getImports($class)))) {
             return static::FAILURE;
         }
 
-        $this->makeDirectory($path);
-
-        if (windows_os()) {
-            $path = str_replace('\\', '/', $this->getPath($this->qualifyClass($this->getNameInput())));
-        }
-
-        $this->files->put($path, $this->sortImports($this->buildClass($this->getNameInput())));
-
-        $this->success('Creating '.$this->getType().' ['.$this->getNameInput().'] in '.$path);
+        $this->afterGenerate($class, $path);
 
         return static::SUCCESS;
     }
 
+    /**
+     * Hook for registering the generated class, creating related files, ...
+     */
+    protected function afterGenerate(string $class, string $path): void {}
+
     protected function getNameInput(): string
     {
-        $name = $this->argument('name');
+        $name = trim((string) $this->argument('name'));
 
-        if (str_contains($name, '.php')) {
-            return substr($name, 0, -4);
-        }
-
-        return $name;
+        return str_ends_with($name, '.php') ? substr($name, 0, -4) : $name;
     }
 
-    public function getPath(string $qualifiedClass): string
+    public function getPath(string $class): string
     {
-        return $this->qualifyPath('src'.$qualifiedClass);
+        return $this->package()->pathForClass($class)
+            ?? throw new RuntimeException("Class [$class] is not covered by any PSR-4 mapping in composer.json.");
     }
 
-    /**
-     * Gets the type of generator.
-     *
-     * @return string The type of generator.
-     */
     protected function getType(): string
     {
         return $this->type;
     }
 
     /**
-     * Make the directory for the class if necessary.
+     * Write a generated file, refusing to overwrite an existing one unless --force is given.
+     */
+    protected function writeFile(string $path, string $contents): bool
+    {
+        if ($this->files->isFile($path) && ! ($this->hasOption('force') && $this->option('force'))) {
+            $this->error($this->getType().' ['.$this->package()->relativePath($path).'] already exists!');
+
+            return false;
+        }
+
+        $this->makeDirectory($path);
+        $this->files->put($path, $contents);
+
+        $this->output()->writeln(sprintf(
+            '  <fg=blue;options=bold>INFO</> %s [<options=bold>%s</>] created successfully.',
+            $this->getType(),
+            $this->package()->relativePath($path)
+        ));
+
+        return true;
+    }
+
+    /**
+     * Make the directory for the file if necessary.
      */
     public function makeDirectory(string $path): string
     {
         if (! $this->files->isDirectory(dirname($path))) {
-            $this->files->makeDirectory(dirname($path));
+            $this->files->makeDirectory(dirname($path), 0755, true);
         }
 
         return $path;
     }
 
     /**
-     * Sorts the imports in the given stub.
-     *
-     *
-     * @return array|string|string[]
+     * Make sure composer.json autoloads $namespace from $directory (PSR-4).
      */
-    protected function sortImports($stub): array|string
+    protected function ensureAutoload(string $namespace, string $directory): void
     {
-        if (preg_match('/(?P<imports>(?:^use [^;{]+;$\n?)+)/m', $stub, $match)) {
-            $imports = explode("\n", trim($match['imports']));
-
-            sort($imports);
-
-            return str_replace(trim($match['imports']), implode("\n", $imports), $stub);
+        if (array_key_exists($namespace, $this->package()->psr4())) {
+            return;
         }
 
-        return $stub;
+        $composer = $this->package()->composer();
+        $composer->set('autoload.psr-4', array_merge(
+            (array) $composer->get('autoload.psr-4', []),
+            [$namespace.'\\' => rtrim($directory, '/').'/']
+        ));
+        $composer->save();
+        $this->package()->refresh();
+
+        $this->output()->writeln(sprintf(
+            '  <fg=green;options=bold>DONE</> Added "%s\\\\" => "%s/" to composer.json autoload. Run <options=bold>composer dump-autoload</>.',
+            $namespace,
+            rtrim($directory, '/')
+        ));
+    }
+
+    protected function registrar(): ProviderRegistrar
+    {
+        return new ProviderRegistrar($this->package());
     }
 
     /**
-     * Get the console command options.
-     *
-     * This method returns an array of options available for the command.
-     * Each option is an array containing the option name, shortcut,
-     * option mode, and a description.
-     *
-     * @return array The array of command options.
+     * Print the outcome of registering something in the service provider.
      */
+    protected function report(Registration $registration): void
+    {
+        match ($registration->status) {
+            Registration::REGISTERED => $this->output()->writeln('  <fg=green;options=bold>DONE</> '.$registration->message),
+            Registration::MANUAL, Registration::NO_PROVIDER => $this->output()->writeln('  <fg=yellow;options=bold>WARN</> '.$registration->message),
+            default => null,
+        };
+    }
+
+    /**
+     * Extra classes to import into the generated class (e.g. the related model).
+     *
+     * @return list<string>
+     */
+    protected function getImports(string $class): array
+    {
+        return [];
+    }
+
+    /**
+     * Merge extra imports into the `use` block after the namespace, sort it and
+     * normalise the blank lines around it. Imports from the class's own namespace are dropped.
+     *
+     * @param  list<string>  $extra
+     */
+    protected function tidyImports(string $code, array $extra = []): string
+    {
+        if (! preg_match('/^namespace ([^;]+);\n/m', $code, $match, PREG_OFFSET_CAPTURE)) {
+            return $code;
+        }
+
+        $namespace = $match[1][0];
+        $headerEnd = $match[0][1] + strlen($match[0][0]);
+        $rest = substr($code, $headerEnd);
+
+        preg_match('/^(?:use [^;{]+;\n|\n)*/', $rest, $block);
+        preg_match_all('/^use ([^;{]+);/m', $block[0], $uses);
+
+        $imports = array_filter(
+            array_unique(array_map(fn (string $import) => trim($import, '\\ '), [...$uses[1], ...$extra])),
+            fn (string $import) => $this->getClassNamespace($import) !== $namespace || str_contains($import, ' ')
+        );
+
+        sort($imports, SORT_STRING | SORT_FLAG_CASE);
+
+        $useBlock = $imports === [] ? '' : implode("\n", array_map(fn (string $import) => "use $import;", $imports))."\n\n";
+
+        return substr($code, 0, $headerEnd)."\n".$useBlock.substr($rest, strlen($block[0]));
+    }
+
     protected function getOptions(): array
     {
         return [
-            [
-                'force',
-                'f',
-                InputOption::VALUE_NONE,
-                'Force the operation to run when the '.strtolower($this->getType()).' already exists'],
+            ['force', 'f', InputOption::VALUE_NONE, 'Create the '.strtolower($this->getType()).' even if it already exists'],
         ];
     }
 
-    /**
-     * Gets the console command arguments.
-     *
-     * This method returns an array of arguments available for the command.
-     * Each argument is an array containing the argument name, mode, and a description.
-     *
-     * @return array The array of command arguments.
-     */
     protected function getArguments(): array
     {
         return [
-            [
-                'name',
-                InputOption::VALUE_REQUIRED,
-                'The name of the '.strtolower($this->getType()),
+            ['name', InputArgument::REQUIRED, 'The name of the '.strtolower($this->getType())],
+        ];
+    }
+
+    protected function getValidationRules(): array
+    {
+        return [
+            'name' => [
+                new Assert\NotBlank(message: 'The name argument is required.'),
+                new Assert\Regex(
+                    pattern: '/^[A-Za-z_][A-Za-z0-9_]*(?:[\/\\\\][A-Za-z_][A-Za-z0-9_]*)*(?:\.php)?$/',
+                    message: 'The name must be a valid class name, optionally nested with "/" (e.g. "Admin/UserService").',
+                ),
             ],
         ];
     }

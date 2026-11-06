@@ -1,0 +1,26 @@
+<?php
+
+namespace {{ namespace }};
+
+use Exception;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class {{ class }} extends Exception
+{
+    /**
+     * Report the exception.
+     */
+    public function report(): void
+    {
+        //
+    }
+
+    /**
+     * Render the exception as an HTTP response (null falls back to Laravel's default rendering).
+     */
+    public function render(Request $request): ?Response
+    {
+        return null;
+    }
+}

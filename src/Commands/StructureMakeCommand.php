@@ -2,75 +2,47 @@
 
 namespace NyonCode\LaravelPackageConsole\Commands;
 
+use NyonCode\LaravelPackageConsole\Support\Filesystem;
 use Symfony\Component\Console\Attribute\AsCommand;
 
-#[AsCommand(
-    name: 'make:structure',
-    description: 'Create a directory structure'
-)]
-final class StructureMakeCommand extends GenerateCommand
+#[AsCommand(name: 'make:structure', description: 'Create the standard Laravel package directory structure')]
+final class StructureMakeCommand extends BaseCommand
 {
-    private array $defaultDirectories = [
+    private const DIRECTORIES = [
         'config',
-        'database',
+        'database/factories',
         'database/migrations',
         'database/seeders',
-        'database/factories',
         'lang',
-        'public',
-        'resources',
         'resources/views',
         'routes',
-        'src/Models',
-        'src/Providers',
-        'tests',
+        'src',
+        'tests/Feature',
+        'tests/Unit',
     ];
 
-    /**
-     * Execute the console command.
-     */
-    public function handle(): ?bool
+    public function handle(): int
     {
-        $outputMessage = [];
+        $files = new Filesystem;
+        $created = 0;
 
-        $this->title('Creating directory structure...');
+        foreach (self::DIRECTORIES as $directory) {
+            $path = $this->package()->path($directory);
 
-        $this->progressStart(count($this->defaultDirectories));
+            if ($files->isDirectory($path)) {
+                $this->output()->writeln("  <fg=gray>EXISTS</> $directory");
 
-        foreach ($this->defaultDirectories as $directory) {
-            $packageDirectory = pcli_package_path($directory);
-
-            if ($this->files->isDirectory($packageDirectory)) {
-                $this->files->makeDirectory($packageDirectory);
-                $outputMessage[] = '<comment>Created directory: </comment>'.$directory;
-            } else {
-                $outputMessage[] = '<info>Directory already exists: </info>'.$directory;
+                continue;
             }
-            $this->progressAdvance();
+
+            $files->makeDirectory($path, 0755, true);
+            $this->output()->writeln("  <fg=green;options=bold>CREATE</> $directory");
+            $created++;
         }
 
-        $this->progressFinish();
-
-        $this->message($outputMessage);
         $this->newLine();
-        $this->right('Package structure generated successfully!');
+        $this->right($created > 0 ? "Created $created directories." : 'Package structure is complete.');
 
-        return 0;
-    }
-
-    /**
-     * Get the console command arguments.
-     */
-    protected function getArguments(): array
-    {
-        return [];
-    }
-
-    /**
-     * Get the console command options.
-     */
-    protected function getOptions(): array
-    {
-        return [];
+        return self::SUCCESS;
     }
 }

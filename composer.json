@@ -1,13 +1,14 @@
 {
-    "version": "1.0.3",
     "name": "nyoncode/laravel-package-console",
-    "description": "Console to easily create a laravel package",
+    "description": "Artisan-like generators and scaffolding for developing Laravel 12 and 13 packages, with first-class laravel-package-toolkit support",
     "keywords": [
         "nyoncode",
         "laravel",
         "package",
         "console",
-        "create"
+        "generator",
+        "scaffold",
+        "laravel-package-toolkit"
     ],
     "homepage": "https://github.com/NyonCode/laravel-package-console",
     "authors": [
@@ -20,18 +21,22 @@
     "type": "library",
     "license": "MIT",
     "require": {
-        "php": "^8.1",
+        "php": "^8.2",
         "ext-readline": "*",
-        "symfony/console": "^6.0|^7.0",
-        "symfony/validator": "^6.0|^7.0",
-        "symfony/finder": "^6.0|^7.0",
-        "symfony/string": "^7.2"
+        "doctrine/inflector": "^2.0",
+        "nikic/php-parser": "^5.0",
+        "symfony/console": "^7.2|^8.0",
+        "symfony/finder": "^7.2|^8.0",
+        "symfony/string": "^7.2|^8.0",
+        "symfony/validator": "^7.2|^8.0"
     },
     "require-dev": {
-        "mockery/mockery": "^1.5",
-        "pestphp/pest": "^1.22|^2.0|^3.1",
-        "squizlabs/php_codesniffer": "*",
-        "laravel/pint": "^1.24"
+        "laravel/pint": "^1.24",
+        "mockery/mockery": "^1.6",
+        "pestphp/pest": "^3.8|^4.0"
+    },
+    "suggest": {
+        "nyoncode/laravel-package-toolkit": "Generated resources are registered through its fluent Packager API"
     },
     "autoload": {
         "psr-4": {
@@ -49,8 +54,14 @@
     "minimum-stability": "dev",
     "prefer-stable": true,
     "scripts": {
-        "test": "vendor/bin/phpunit",
-        "pint": "vendor/bin/pint"
+        "test": "vendor/bin/pest --exclude-group=integration",
+        "test:integration": [
+            "Composer\\Config::disableProcessTimeout",
+            "@putenv ANVIL_INTEGRATION=1",
+            "vendor/bin/pest --group=integration"
+        ],
+        "pint": "vendor/bin/pint",
+        "docs:commands": "php tests/Support/generate-command-reference.php"
     },
     "config": {
         "allow-plugins": {
@@ -58,6 +69,6 @@
         }
     },
     "bin": [
-        "bin/pcli_setup"
+        "bin/anvil"
     ]
 }

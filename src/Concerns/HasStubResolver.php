@@ -9,7 +9,7 @@ trait HasStubResolver
     protected string $stub = '';
 
     /**
-     * Get the stub.
+     * Get the stub file name.
      */
     public function getStub(): string
     {
@@ -17,17 +17,23 @@ trait HasStubResolver
     }
 
     /**
-     * Resolve the given stub.
-     *
+     * Resolve the given stub: a customised copy in the package's stubs/anvil/ directory
+     * wins over the one shipped with the console.
      *
      * @throws RuntimeException
      */
     protected function resolveStub(string $stub): string
     {
-        if (! $this->files->isFile(pcli_stubs_path($stub))) {
-            throw new RuntimeException("Stub [$stub] not found.");
+        if ($stub === '') {
+            throw new RuntimeException('No stub defined for ['.static::class.'].');
         }
 
-        return pcli_stubs_path($stub);
+        foreach ([anvil_package_path('stubs/anvil/'.$stub), anvil_stubs_path($stub)] as $path) {
+            if ($this->files->isFile($path)) {
+                return $path;
+            }
+        }
+
+        throw new RuntimeException("Stub [$stub] not found.");
     }
 }

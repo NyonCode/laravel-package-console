@@ -1,0 +1,27 @@
+<?php
+
+namespace {{ namespace }};
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class {{ class }} extends Model
+{
+    /** @use HasFactory<{{ factory }}> */
+    use HasFactory;
+
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
+    protected $fillable = [];
+
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory(): {{ factory }}
+    {
+        return {{ factory }}::new();
+    }
+}

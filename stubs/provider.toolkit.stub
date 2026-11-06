@@ -1,0 +1,19 @@
+<?php
+
+namespace {{ namespace }};
+
+use NyonCode\LaravelPackageToolkit\PackageServiceProvider;
+use NyonCode\LaravelPackageToolkit\Packager;
+
+class {{ class }} extends PackageServiceProvider
+{
+    /**
+     * Describe the package's resources.
+     */
+    public function configure(Packager $packager): void
+    {
+        $packager
+            ->name('{{ packageName }}')
+            ->hasShortName('{{ package }}');
+    }
+}

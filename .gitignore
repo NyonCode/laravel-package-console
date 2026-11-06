@@ -4,3 +4,4 @@ auth.json
 /package-lock.json
 /composer.lock
 .idea/
+/.phpunit.cache

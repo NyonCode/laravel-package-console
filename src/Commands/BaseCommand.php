@@ -2,13 +2,12 @@
 
 namespace NyonCode\LaravelPackageConsole\Commands;
 
-use Exception;
 use NyonCode\LaravelPackageConsole\Concerns\HasArguments;
 use NyonCode\LaravelPackageConsole\Concerns\HasInteractionWithIO;
 use NyonCode\LaravelPackageConsole\Concerns\HasOptions;
-use NyonCode\LaravelPackageConsole\Concerns\HasResolver;
 use NyonCode\LaravelPackageConsole\Concerns\InputValidator;
 use NyonCode\LaravelPackageConsole\Concerns\NameNormalizer;
+use NyonCode\LaravelPackageConsole\Support\Package;
 use RuntimeException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Exception\ExceptionInterface;
@@ -23,52 +22,47 @@ abstract class BaseCommand extends Command
     use HasArguments;
     use HasInteractionWithIO;
     use HasOptions;
-    use HasResolver;
     use InputValidator;
     use NameNormalizer;
 
-    public function __construct()
-    {
-        parent::__construct();
-    }
-
+    /**
+     * Execute the console command. Return an exit code (int), or false for failure.
+     */
     abstract public function handle();
 
     /**
-     * Call a console command
+     * Call another console command (non-interactively) and return its exit code.
      *
+     * @param  array<string, mixed>  $arguments  Arguments and options, e.g. ['name' => 'Post', '--force' => true].
      *
-     * @throws Exception
+     * @throws ExceptionInterface
      */
-    public function call(
-        string $commandName,
-        array $arguments = [],
-        array $options = []
-    ): int {
-        $application = $this->getApplication();
+    public function call(string $commandName, array $arguments = [], array $options = []): int
+    {
+        $command = $this->getApplication()->find($commandName);
 
-        $inputParams = array_merge(
-            ['command' => $commandName],
-            $arguments,
-            $options
-        );
+        $input = new ArrayInput(array_merge($arguments, $options));
+        $input->setInteractive(false);
 
-        $input = new ArrayInput($inputParams);
-        $output = new ConsoleOutput;
-        $application->run($input, $output);
-
-        return Command::SUCCESS;
+        return $command->run($input, $this->output ?? new ConsoleOutput);
     }
 
     /**
      * Run the console command.
-     *
      *
      * @throws ExceptionInterface
      */
     public function run(InputInterface $input, OutputInterface $output): int
     {
         return parent::run($this->input = $input, $this->output = $output);
+    }
+
+    /**
+     * The Laravel package being developed.
+     */
+    protected function package(): Package
+    {
+        return anvil_package();
     }
 
     /**
@@ -80,19 +74,36 @@ abstract class BaseCommand extends Command
     }
 
     /**
+     * Ask for required arguments that were not passed on the command line.
+     */
+    protected function interact(InputInterface $input, OutputInterface $output): void
+    {
+        $io = new SymfonyStyle($input, $output);
+
+        foreach ($this->getDefinition()->getArguments() as $argument) {
+            $value = $input->getArgument($argument->getName());
+
+            if ($argument->isRequired() && ($value === null || $value === [] || $value === '')) {
+                $input->setArgument(
+                    $argument->getName(),
+                    $io->ask($argument->getDescription() ?: ucfirst($argument->getName()))
+                );
+            }
+        }
+    }
+
+    /**
      * Execute the console command.
      */
-    protected function execute(
-        InputInterface $input,
-        OutputInterface $output
-    ): int {
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
         $this->input = $input;
         $this->output = $output;
         $this->ioStyle = new SymfonyStyle($this->input, $this->output);
 
         $validationErrors = $this->validateArguments($input);
 
-        if (! empty($validationErrors)) {
+        if ($validationErrors !== []) {
             foreach ($validationErrors as $error) {
                 $this->error($error);
             }
@@ -100,12 +111,14 @@ abstract class BaseCommand extends Command
             return self::FAILURE;
         }
 
-        $method = method_exists($this, 'handle') ? 'handle' : '__invoke';
-
         try {
-            $this->{$method}();
+            $result = $this->handle();
 
-            return static::SUCCESS;
+            return match (true) {
+                is_int($result) => $result,
+                $result === false => static::FAILURE,
+                default => static::SUCCESS,
+            };
         } catch (RuntimeException $e) {
             $this->error($e->getMessage());
 

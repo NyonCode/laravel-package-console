@@ -4,60 +4,48 @@ namespace NyonCode\LaravelPackageConsole\Commands;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputOption;
-
-use function Symfony\Component\String\u;
+use Symfony\Component\Validator\Constraints as Assert;
 
 #[AsCommand(name: 'make:facade', description: 'Create a new facade class')]
 final class FacadeMakeCommand extends GenerateCommand
 {
     protected string $type = 'Facade';
 
+    protected string $namespace = 'Facades';
+
     protected string $stub = 'facade.stub';
 
     /**
-     * Replaces placeholders in the given stub with the correct class name.
-     *
-     *
-     * @return $this
+     * The accessor is --accessor (a container binding name) or, by default,
+     * the class of the same name in the package root namespace.
      */
-    protected function replaceClass(string &$stub, string $class): static
+    protected function getReplacements(string $name): array
     {
-        parent::replaceClass($stub, $class);
+        $accessor = $this->option('accessor');
+        $class = '\\'.$this->packageRootNamespace().'\\'.$this->classBasename($name);
 
-        $facadeAccessor = $this->option('accessor') ?: u($class)->kebab();
-        $stub = str_replace(
-            [
-                'DummyFacadeAccessor',
-                '{{ facadeAccessor }}',
-                '{{facadeAccessor}}',
-            ],
-            $facadeAccessor,
-            $stub
-        );
-
-        return $this;
+        return [
+            'facadeAccessor' => $accessor ? "'$accessor'" : $class.'::class',
+            'accessorClass' => $accessor ?: $class,
+        ];
     }
 
-    /**
-     * Get the console command options.
-     *
-     * @return array[]
-     */
+    protected function getValidationRules(): array
+    {
+        return [
+            ...parent::getValidationRules(),
+            '--accessor' => [new Assert\Regex(
+                pattern: '/^[A-Za-z0-9_.:\\\\-]+$/',
+                message: 'The accessor must be a container binding name or a class name.',
+            )],
+        ];
+    }
+
     protected function getOptions(): array
     {
         return [
-            [
-                'accessor',
-                null,
-                InputOption::VALUE_OPTIONAL,
-                'The accessor name for the facade',
-            ],
-            [
-                'force',
-                'f',
-                InputOption::VALUE_NONE,
-                'Force the operation to run when the facade already exists',
-            ],
+            ['accessor', null, InputOption::VALUE_REQUIRED, 'The container binding the facade resolves (defaults to the root class of the same name)'],
+            ...parent::getOptions(),
         ];
     }
 }

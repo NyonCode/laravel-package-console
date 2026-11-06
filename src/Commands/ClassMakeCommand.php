@@ -10,46 +10,16 @@ final class ClassMakeCommand extends GenerateCommand
 {
     protected string $type = 'Class';
 
-    /**
-     * Get the stub file for the generator.
-     */
     public function getStub(): string
     {
-        if ($this->option('invokable')) {
-            return 'class.invokable.stub';
-        }
-
-        return 'class.stub';
+        return $this->option('invokable') ? 'class.invokable.stub' : 'class.stub';
     }
 
-    /**
-     * Get the console command arguments.
-     *
-     * @return array[]
-     */
     protected function getOptions(): array
     {
         return [
-            [
-                'invokable',
-                'i',
-                InputOption::VALUE_NONE,
-                'Generate a single method, invokable class',
-            ],
-            [
-                'force',
-                'f',
-                InputOption::VALUE_NONE,
-                'Create the class even if the class already exists',
-            ],
+            ['invokable', 'i', InputOption::VALUE_NONE, 'Generate a single method, invokable class'],
+            ...parent::getOptions(),
         ];
-    }
-
-    /**
-     * Get the default namespace for the class.
-     */
-    protected function getDefaultNamespace(string $rootNamespace): string
-    {
-        return $rootNamespace;
     }
 }

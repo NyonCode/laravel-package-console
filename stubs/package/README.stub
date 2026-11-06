@@ -1,0 +1,38 @@
+# {{ packageName }}
+
+{{ description }}
+
+## Requirements
+
+- PHP {{ php }}
+- Laravel {{ laravel }}
+
+## Installation
+
+```bash
+composer require {{ composerName }}
+```
+
+The service provider is registered automatically through Laravel's package discovery.
+
+Publish the config file:
+
+```bash
+php artisan vendor:publish --tag="{{ configTag }}"
+```
+
+## Usage
+
+```php
+//
+```
+
+## Testing
+
+```bash
+composer test
+```
+
+## License
+
+The MIT License (MIT). See [LICENSE.md](LICENSE.md) for more information.

@@ -1,0 +1,110 @@
+<?php
+
+use Acme\Blog\Blog;
+use Acme\Blog\Events\PostPublished;
+use Acme\Blog\Facades\Blog as BlogFacade;
+use Acme\Blog\Http\Middleware\EnsureAuthor;
+use Acme\Blog\Jobs\ClearCache;
+use Acme\Blog\Listeners\LogLogin;
+use Acme\Blog\Listeners\NotifySubscribers;
+use Acme\Blog\Mail\PostDigest;
+use Acme\Blog\Mail\Welcome;
+use Acme\Blog\Models\Post;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\ServiceProvider;
+
+/*
+ * Written into the generated package by the console's integration tests: everything the
+ * generators registered in the service provider must work in a real Laravel application.
+ */
+
+it('merges every config file', function () {
+    expect(config('blog'))->toBeArray()
+        ->and(config('blog-cache'))->toBeArray();
+});
+
+it('registers the console commands', function () {
+    expect(Artisan::all())->toHaveKeys(['blog:sync-posts', 'blog:prune'])
+        ->and(Artisan::call('blog:prune'))->toBe(0)
+        ->and(Artisan::call('blog:sync-posts'))->toBe(0);
+});
+
+it('loads the web, api and other route files', function () {
+    $this->get('/blog/ping')->assertOk()->assertSee('pong');
+    $this->getJson('/api/blog/ping')->assertOk()->assertExactJson(['pong' => true]);
+    $this->get('/blog/admin/ping')->assertOk()->assertSee('admin');
+
+    Route::getRoutes()->refreshNameLookups();
+
+    expect(Route::has(['blog.ping', 'blog.api.ping', 'blog.admin.ping']))->toBeTrue();
+});
+
+it('aliases the middleware', function () {
+    expect(app('router')->getMiddleware())->toHaveKey('blog.author', EnsureAuthor::class);
+});
+
+it('registers the event listeners', function () {
+    Event::fake();
+
+    Event::assertListening(PostPublished::class, NotifySubscribers::class);
+    Event::assertListening(Login::class, LogLogin::class);
+});
+
+it('renders views, class components, inline components and anonymous components', function () {
+    expect(view()->exists('blog::posts.index'))->toBeTrue()
+        ->and(view('blog::posts.index')->render())->toContain('<div>')
+        ->and(Blade::render('<x-blog::alert />'))->toContain('<div>')
+        ->and(Blade::render('<x-blog::forms.text-input />'))->toContain('<div>')
+        ->and(Blade::render('<x-blog::badge />'))->toContain('<div>');
+});
+
+it('loads PHP and JSON translations', function () {
+    expect(__('blog::messages.welcome'))->toBe('Hello from blog');
+
+    app()->setLocale('cs');
+
+    expect(__('Hello'))->toBe('Ahoj');
+});
+
+it('renders the mailables with their templates', function () {
+    expect((new PostDigest)->render())->toContain('The body of your message.')
+        ->and((new Welcome)->render())->toContain('<div>');
+});
+
+it('runs the migrations and creates models through the package factory', function () {
+    $migrations = dirname(__DIR__, 2).'/database/migrations';
+
+    foreach (['create_posts_table', 'add_slug_to_posts_table', 'archive_old_posts'] as $name) {
+        (require glob("$migrations/*$name.php")[0])->up();
+    }
+
+    expect(Schema::hasTable('posts'))->toBeTrue();
+
+    $post = Post::factory()->create();
+
+    expect($post)->toBeInstanceOf(Post::class)
+        ->and(Post::query()->count())->toBe(1);
+});
+
+it('publishes config, migrations, seeders, views and translations', function () {
+    foreach (['config', 'migrations', 'seeders', 'views', 'translations'] as $group) {
+        $paths = ServiceProvider::pathsToPublish(null, 'blog{{ separator }}'.$group);
+
+        expect($paths)->not->toBeEmpty("Nothing to publish for blog{{ separator }}$group");
+
+        foreach (array_keys($paths) as $source) {
+            expect(file_exists($source))->toBeTrue("Missing $source");
+        }
+    }
+});
+
+it('resolves the facade and runs jobs', function () {
+    expect(BlogFacade::getFacadeRoot())->toBeInstanceOf(Blog::class);
+
+    ClearCache::dispatchSync();
+});
