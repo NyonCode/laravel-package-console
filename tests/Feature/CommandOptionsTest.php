@@ -826,6 +826,15 @@ describe('input validation', function () {
         ['make:mail', ['name' => 'Shipped', '--view' => 'a b'], 'The view name may only contain'],
         ['make:facade', ['name' => 'Blog', '--accessor' => "blog'"], 'The accessor must be'],
         ['make:command', ['name' => 'Sync', '--command' => "blog:sync'"], 'may not contain'],
+        ['make:controller', ['name' => 'PostController', '--model' => "Post; exit('x')"], 'The model must be a class name'],
+        ['make:controller', ['name' => 'PostController', '--model' => 'Post Model'], 'The model must be a class name'],
+        ['make:observer', ['name' => 'PostObserver', '--model' => '9Post'], 'The model must be a class name'],
+        ['make:policy', ['name' => 'PostPolicy', '--model' => 'Admin/Class'], 'The model must be a class name'],
+        ['make:policy', ['name' => 'PostPolicy', '--model' => 'Models//Post'], 'The model must be a class name'],
+        ['make:factory', ['name' => 'PostFactory', '--model' => '../Post'], 'The model must be a class name'],
+        ['make:listener', ['name' => 'Notify', '--event' => 'Post-Published'], 'The event must be a class name'],
+        ['make:listener', ['name' => 'Notify', '--event' => 'Events\\List'], 'The event must be a class name'],
+        ['make:listener', ['name' => 'Notify', '--event' => '\\'], 'The event must be a class name'],
     ]);
 
     it('accepts the usual option values', function (string $command, array $input) {
@@ -838,6 +847,12 @@ describe('input validation', function () {
         ['make:mail', ['name' => 'Shipped', '--markdown' => 'emails/orders.shipped']],
         ['make:facade', ['name' => 'Blog', '--accessor' => 'Acme\Blog\Manager']],
         ['make:command', ['name' => 'Sync', '--command' => 'blog:sync {post} {--force : Overwrite}']],
+        ['make:controller', ['name' => 'PostController', '--model' => 'Admin/Post']],
+        ['make:observer', ['name' => 'PostObserver', '--model' => 'Acme\\Blog\\Models\\Post']],
+        ['make:policy', ['name' => 'UserPolicy', '--model' => '\\App\\Models\\User']],
+        ['make:factory', ['name' => 'PostFactory', '--model' => 'Post']],
+        ['make:listener', ['name' => 'LogLogin', '--event' => 'Illuminate\\Auth\\Events\\Login']],
+        ['make:listener', ['name' => 'Notify', '--event' => 'Admin/PostPublished']],
     ]);
 
     it('fails without a required name when not interactive', function () {

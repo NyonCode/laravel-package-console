@@ -21,6 +21,8 @@ final class ComponentMakeCommand extends GenerateCommand
 
     protected string $type = 'Component';
 
+    protected string $example = 'Alert';
+
     protected string $namespace = 'View\\Components';
 
     protected string $stub = 'component.stub';

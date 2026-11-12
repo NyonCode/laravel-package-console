@@ -10,6 +10,8 @@ final class ResourceMakeCommand extends GenerateCommand
 {
     protected string $type = 'Resource';
 
+    protected string $example = 'PostResource';
+
     protected string $namespace = 'Http\\Resources';
 
     public function getStub(): string

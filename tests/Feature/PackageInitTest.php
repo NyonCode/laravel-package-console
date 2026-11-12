@@ -209,7 +209,8 @@ it('asks for everything when interactive', function () {
     $kernel = new Kernel($dir);
     $kernel->application->setAutoExit(false);
     $tester = new ApplicationTester($kernel->application);
-    $tester->setInputs(['acme/laravel-shop', 'A shop.', '', 'Jane Doe', 'jane@example.com', 'no']);
+    // Name, description, namespace, author, email, provider, Laravel versions, confirmation.
+    $tester->setInputs(['acme/laravel-shop', 'A shop.', '', 'Jane Doe', 'jane@example.com', 'plain', '', '']);
 
     $code = $tester->run(['command' => 'package:init'], ['interactive' => true, 'decorated' => false]);
     $composer = composerJson($dir);

@@ -10,6 +10,8 @@ final class EnumMakeCommand extends GenerateCommand
 {
     protected string $type = 'Enum';
 
+    protected string $example = 'PostStatus';
+
     protected string $namespace = 'Enums';
 
     public function getStub(): string

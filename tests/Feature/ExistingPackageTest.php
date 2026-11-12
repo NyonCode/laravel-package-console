@@ -232,6 +232,63 @@ describe('an existing toolkit provider', function () {
     ]);
 });
 
+describe('a hand-written plain provider', function () {
+    /**
+     * A package whose provider registers its resources in boot(), written by hand.
+     */
+    $package = function (string $boot): string {
+        $dir = tempPackage([
+            'name' => 'acme/laravel-blog',
+            'autoload' => ['psr-4' => ['Acme\\Blog\\' => 'src/']],
+            'extra' => ['laravel' => ['providers' => ['Acme\\Blog\\BlogServiceProvider']]],
+        ]);
+        writeProvider($dir, 'src/BlogServiceProvider.php', "<?php\n\nnamespace Acme\\Blog;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nclass BlogServiceProvider extends ServiceProvider\n{\n    public function boot(): void\n    {\n        $boot\n    }\n}\n");
+
+        return $dir;
+    };
+
+    it('does not register again what the provider already registers its own way', function (string $boot, string $command, array $input) use ($package) {
+        $dir = $package($boot);
+        $before = provider($dir);
+
+        generate($dir, $command, $input);
+
+        expect(provider($dir))->toBe($before);
+    })->with([
+        'routes, spaces around the dot' => ["\$this->loadRoutesFrom(__DIR__ . '/../routes/api.php');", 'make:route', ['name' => 'api']],
+        'routes, required in a group' => ["Route::group([], function () {\n            require __DIR__.'/../routes/api.php';\n        });", 'make:route', ['name' => 'api']],
+        'routes, through a helper' => ["\$this->loadRoutesFrom(\$this->basePath('routes/api.php'));", 'make:route', ['name' => 'api']],
+        'migrations, loaded' => ["\$this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations');", 'make:migration', ['name' => 'create_posts_table']],
+        'migrations, published file by file' => ["\$this->publishes([\n            __DIR__.'/../database/migrations/create_tags_table.php.stub' => database_path('migrations/create_tags_table.php'),\n        ], 'migrations');", 'make:migration', ['name' => 'create_posts_table']],
+        'config, published as a directory' => ["\$this->mergeConfigFrom(__DIR__ . '/../config/blog.php', 'blog');\n        \$this->publishes([__DIR__ . '/../config' => config_path()], 'config');", 'make:config', ['name' => 'blog']],
+    ]);
+
+    it('adds only what is missing', function () use ($package) {
+        $dir = $package("\$this->loadViewsFrom(__DIR__ . '/../resources/views', 'blog');");
+
+        generate($dir, 'make:view', ['name' => 'posts.index']);
+
+        expect(substr_count(provider($dir), 'loadViewsFrom'))->toBe(1)
+            ->and(provider($dir))->toContain("__DIR__.'/../resources/views' => resource_path('views/vendor/blog'),");
+    });
+
+    it('publishes views under the namespace the provider loads them as', function () use ($package) {
+        $dir = $package("\$this->loadViewsFrom(__DIR__.'/../resources/views', 'laravel-blog');");
+
+        generate($dir, 'make:view', ['name' => 'posts.index']);
+
+        expect(provider($dir))->toContain("__DIR__.'/../resources/views' => resource_path('views/vendor/laravel-blog'),");
+    });
+
+    it('registers a second file next to one the provider registers its own way', function () use ($package) {
+        $dir = $package("\$this->loadRoutesFrom(__DIR__ . '/../routes/web.php');");
+
+        generate($dir, 'make:route', ['name' => 'api']);
+
+        expect(provider($dir))->toContain("\$this->loadRoutesFrom(__DIR__.'/../routes/api.php');");
+    });
+});
+
 it('registers what it can and warns about the rest', function () {
     $dir = tempPackage([
         'name' => 'acme/laravel-blog',

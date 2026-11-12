@@ -6,20 +6,6 @@
  * valid PHP and pass Laravel Pint.
  */
 
-dataset('modes', ['toolkit', 'plain', 'spatie']);
-
-/**
- * A new package with the toolkit, a new plain one, or an existing spatie/laravel-package-tools one.
- */
-function packageIn(string $mode): string
-{
-    return match ($mode) {
-        'toolkit' => initPackage(),
-        'plain' => initPackage(toolkit: false),
-        'spatie' => spatiePackage(),
-    };
-}
-
 it('generates every file where Laravel and the toolkit expect it', function (string $mode) {
     $dir = packageIn($mode);
 

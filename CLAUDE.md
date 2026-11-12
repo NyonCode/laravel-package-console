@@ -46,7 +46,16 @@ Supported dependency range: Symfony `^7.2|^8.0` and Pest `^3.8|^4.0`. Run the su
   - Subclasses implement `handle()`. An int return is the exit code; `false` means failure.
   - Arguments and options are declared Laravel-style as arrays in `getArguments()` / `getOptions()`.
   - `getValidationRules()` validates arguments, and options when keyed `--option`. Validate every option value that ends up in generated code or in a path.
-  - Missing required arguments are asked for interactively.
+  - Missing required arguments are asked for interactively (`interact()`), with the label and
+    placeholder from `promptForArgument()`; a command that had to ask may ask about its options
+    in `afterPromptingForMissingArguments()`, as Artisan does.
+  - All questions go through `$this->prompts()` (`Support/Prompts`): the default when the input
+    is not interactive, a Laravel Prompts prompt in a terminal, a plain Symfony question
+    elsewhere (Windows, piped input). Never call Laravel Prompts' helpers directly, and never
+    use `Prompt::fallbackWhen()`: it is static and cannot be turned off again.
+  - Question texts go through `$this->trans()` / `anvil_trans()` (`Support/Lang`): the English
+    text is the key, `lang/{locale}.php` holds the translations, the locale is `ANVIL_LANG` or
+    the system's. Only questions are translated; output stays in English.
   - `call()` runs another command non-interactively and returns its exit code.
 - `GenerateCommand` (classes):
   - Subclasses set `$type`, `$namespace` (relative to the root namespace) and `$stub` or `getStub()`.
@@ -62,7 +71,13 @@ Supported dependency range: Symfony `^7.2|^8.0` and Pest `^3.8|^4.0`. Run the su
   - toolkit, when `configure()` exists: it extends the `$packager` chain (`->hasX()`, or adds an item to an existing array argument);
   - spatie, when `configurePackage()` exists (spatie/laravel-package-tools): it appends additive `->hasX()` calls; anything the package tools have no call for goes into `packageBooted()`/`packageRegistered()`. Never add `register()`/`boot()` there, because they would override Spatie's;
   - plain: it appends standard Laravel calls to `register()`/`boot()`. It creates a missing method only when the provider extends `Illuminate\Support\ServiceProvider`; with any other parent it returns a MANUAL warning with the code.
+- In `register()`/`boot()` and the spatie hooks, "already registered" is decided from `PhpFileEditor::registrations()`, which reads the path of every `loadRoutesFrom()`, `publishes()`, `require`, ... in the class, however it is written. A statement passed to `laravelStatements()` names the calls that cover it and its path; only statements without a path (`Event::listen`, `aliasMiddleware`) are matched as text.
 - `Package::shortName()` follows the provider (toolkit `hasShortName()`/`Str::kebab(name)`, spatie `Str::after(name, 'laravel-')`) before falling back to the Composer name. `Package::translationsPath()` is `resources/lang` in spatie mode.
+- `ProviderRegistrar::preview()` registers in memory: registrations build on one another and `previewedCode()` is the result. A previewing registrar answers `Registration::UNKNOWN` instead of adding next to a registration it cannot read.
+- `package:doctor` is `Support/Doctor`: it runs the previewing registrar over the files on disk (REGISTERED means "was missing"), so it can never disagree with the generators, and `--fix` writes the previewed provider. It also checks the other direction (registered files and `Foo::class` that do not exist), `extra.laravel.providers` and PSR-4. A new registrar method needs a check in `Doctor::checkResources()` and a case in `tests/Feature/DoctorTest.php`.
+- `Doctor::fix($subjects)` fixes only the findings about those subjects: it previews again with
+  the registrar called for nothing else. `Support/TranslationFiles` compares the languages of
+  the package (read with php-parser, never `require`d) and splices missing keys into the files.
 - Every operation must stay idempotent. `tests/Feature/ProviderRegistrationTest.php` runs every generator twice and asserts the provider is unchanged.
 
 **`package:init`** writes `composer.json` through `Support/ComposerJson`, which keeps Composer's key order and empty objects and only fills in missing values. It then calls `make:provider --main` and `make:config` and scaffolds `stubs/package/*`. Version constraints per Laravel version are in the `PackageInitCommand::LARAVEL` constant.
@@ -82,7 +97,10 @@ Supported dependency range: Symfony `^7.2|^8.0` and Pest `^3.8|^4.0`. Run the su
 - **Helpers.** Every test runs commands against a temporary package. The helpers in `tests/Pest.php`:
   - `tempPackage()`, `initPackage()`, `anvil()`;
   - `buildFullPackage()`, which runs every generator listed in `fullPackageCommands()`;
-  - `expectValidPhp()`, `expectPintClean()`.
+  - `expectValidPhp()`, `expectPintClean()`;
+  - `anvilPrompting()` runs a command interactively and answers its prompts with `keys(...)`;
+    `anvilAnswering()` answers the plain-question fallback with lines of text. `tests/Pest.php`
+    sets `ANVIL_LANG=en`, so the questions are English whatever the machine's locale.
 - **`tests/Feature/FullPackageTest.php`** builds a complete package in both modes and checks:
   - the exact file list;
   - `php -l` and Pint on every file;

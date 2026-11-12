@@ -9,6 +9,8 @@ final class ViewMakeCommand extends FileGenerateCommand
 {
     protected string $type = 'View';
 
+    protected string $example = 'posts.index';
+
     protected string $stub = 'view.stub';
 
     /**

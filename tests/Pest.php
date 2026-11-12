@@ -1,7 +1,12 @@
 <?php
 
+use Laravel\Prompts\Prompt;
 use NyonCode\LaravelPackageConsole\Kernel;
+use NyonCode\LaravelPackageConsole\Support\Prompts;
 use Symfony\Component\Console\Tester\ApplicationTester;
+
+// The questions are asked in English whatever the language of the machine running the tests.
+putenv('ANVIL_LANG=en');
 
 /*
  * Helpers: every test works in a fresh temporary package directory.
@@ -59,6 +64,72 @@ function anvil(string $dir, string $command, array $input = []): array
     $code = $tester->run(['command' => $command, ...$input], ['interactive' => false, 'decorated' => false]);
 
     return [$code, $tester->getDisplay()];
+}
+
+/**
+ * Run a command in a terminal, answering its prompts with key presses.
+ *
+ * @param  array<string, mixed>  $input
+ * @param  list<string>  $keys  See keys().
+ * @return array{0: int, 1: string, 2: string} [exit code, output, what the prompts rendered]
+ */
+function anvilPrompting(string $dir, string $command, array $input, array $keys): array
+{
+    $kernel = new Kernel($dir);
+    $kernel->application->setAutoExit(false);
+    $tester = new ApplicationTester($kernel->application);
+
+    Prompts::fake($keys);
+
+    // Without this a prompt that is asked more than the test answers would wait forever.
+    Prompt::terminal()->shouldReceive('read')->andThrow(new RuntimeException('The command asked for more key presses than the test gave it.'));
+
+    try {
+        $code = $tester->run(['command' => $command, ...$input], ['interactive' => true, 'decorated' => false]);
+
+        // Every key press must have been read: a test with keys to spare tests less than it says.
+        Prompt::terminal()->mockery_verify();
+    } finally {
+        Prompts::stopFaking();
+    }
+
+    return [$code, $tester->getDisplay(), Prompt::strippedContent()];
+}
+
+/**
+ * Run a command where questions can be answered but prompts cannot be drawn (piped input,
+ * Windows): the answers are lines of text.
+ *
+ * @param  array<string, mixed>  $input
+ * @param  list<string>  $answers
+ * @return array{0: int, 1: string} [exit code, output]
+ */
+function anvilAnswering(string $dir, string $command, array $input, array $answers): array
+{
+    $kernel = new Kernel($dir);
+    $kernel->application->setAutoExit(false);
+    $tester = new ApplicationTester($kernel->application);
+    $tester->setInputs($answers);
+
+    $code = $tester->run(['command' => $command, ...$input], ['interactive' => true, 'decorated' => false]);
+
+    return [$code, $tester->getDisplay()];
+}
+
+/**
+ * Key presses for anvilPrompting(): text is typed letter by letter, a Key constant is one press.
+ *
+ * @return list<string>
+ */
+function keys(string ...$parts): array
+{
+    $keys = [];
+
+    foreach ($parts as $part) {
+        array_push($keys, ...(preg_match('/^[\x20-\x7e]{2,}$/', $part) ? str_split($part) : [$part]));
+    }
+
+    return $keys;
 }
 
 /**
@@ -239,6 +310,20 @@ PHP);
     return $dir;
 }
 
+dataset('modes', ['toolkit', 'plain', 'spatie']);
+
+/**
+ * A new package with the toolkit, a new plain one, or an existing spatie/laravel-package-tools one.
+ */
+function packageIn(string $mode): string
+{
+    return match ($mode) {
+        'toolkit' => initPackage(),
+        'plain' => initPackage(toolkit: false),
+        'spatie' => spatiePackage(),
+    };
+}
+
 /**
  * Run a command that must succeed and return its output.
  */
@@ -274,4 +359,24 @@ function rewriteProvider(string $dir, string $search, string $replace): void
     expect($code)->toContain($search);
 
     file_put_contents($path, str_replace($search, $replace, $code));
+}
+
+/**
+ * Write a file of the package, creating its directory.
+ */
+function put(string $dir, string $path, string $contents = "<?php\n\nreturn [];\n"): void
+{
+    if (! is_dir(dirname("$dir/$path"))) {
+        mkdir(dirname("$dir/$path"), 0755, true);
+    }
+
+    file_put_contents("$dir/$path", $contents);
+}
+
+/**
+ * @return array{0: int, 1: string}
+ */
+function doctor(string $dir, array $options = []): array
+{
+    return anvil($dir, 'package:doctor', $options);
 }

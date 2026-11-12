@@ -19,6 +19,8 @@ final class MigrationMakeCommand extends FileGenerateCommand
 {
     protected string $type = 'Migration';
 
+    protected string $example = 'create_posts_table';
+
     private const CREATE_PATTERNS = ['/^create_(\w+)_table$/', '/^create_(\w+)$/'];
 
     private const CHANGE_PATTERNS = ['/.+_(to|from|in)_(\w+)_table$/', '/.+_(to|from|in)_(\w+)$/'];

@@ -17,6 +17,12 @@ final class Registration
 
     public const NO_PROVIDER = 'no-provider';
 
+    /**
+     * Only from a registrar that previews: the provider registers something of the kind in a
+     * way that cannot be read, so whether the resource is covered is anyone's guess.
+     */
+    public const UNKNOWN = 'unknown';
+
     private function __construct(
         public readonly string $status,
         public readonly string $message = '',
@@ -39,6 +45,11 @@ final class Registration
     public static function manual(string $message): self
     {
         return new self(self::MANUAL, $message);
+    }
+
+    public static function unknown(string $message): self
+    {
+        return new self(self::UNKNOWN, $message);
     }
 
     public static function noProvider(): self

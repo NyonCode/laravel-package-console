@@ -66,6 +66,10 @@ it('generates a package that works in Laravel', function (string $mode, string $
     buildFullPackage($dir);
     fillInPackage($dir, $mode);
 
+    [$code, $output] = anvil($dir, 'package:doctor', ['--strict' => true]);
+
+    expect($code)->toBe(0, $output);
+
     shell('composer update --no-interaction --no-progress --prefer-dist --no-audit', $dir);
 
     $framework = shell('php -r '.escapeshellarg('require "vendor/autoload.php"; echo Composer\InstalledVersions::getPrettyVersion("laravel/framework");'), $dir);

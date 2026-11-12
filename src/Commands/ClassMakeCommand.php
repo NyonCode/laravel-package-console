@@ -10,6 +10,8 @@ final class ClassMakeCommand extends GenerateCommand
 {
     protected string $type = 'Class';
 
+    protected string $example = 'PostService';
+
     public function getStub(): string
     {
         return $this->option('invokable') ? 'class.invokable.stub' : 'class.stub';

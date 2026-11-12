@@ -21,40 +21,67 @@ anvil package:init
 ```
 
 `package:init` (alias `init`) turns an empty directory, or an existing package, into a Laravel
-12/13 package that you can install, test and publish. When it runs interactively it asks for:
+12/13 package that you can install, test and publish. In a terminal it asks for what it needs,
+one question at a time, each with a default you accept with Enter:
 
 ```
 Creating a new Laravel package
 ==============================
 
- Composer package name (vendor/name) [vendor/laravel-blog]:
- > acme/laravel-blog
+ ┌ Composer package name ───────────────────────────────────────┐
+ │ acme/laravel-blog                                            │
+ └──────────────────────────────────────────────────────────────┘
 
- Description [A Laravel package.]:
- >
+ ┌ Description ─────────────────────────────────────────────────┐
+ │ A Laravel package.                                           │
+ └──────────────────────────────────────────────────────────────┘
 
- Root namespace [Acme\Blog]:
- >
+ ┌ Root namespace ──────────────────────────────────────────────┐
+ │ Acme\Blog                                                    │
+ └──────────────────────────────────────────────────────────────┘
 
- Author name [Jane Doe]:
- >
+ ┌ Author name ─────────────────────────────────────────────────┐
+ │ Jane Doe                                                     │
+ └──────────────────────────────────────────────────────────────┘
 
- Author email [jane@example.com]:
- >
+ ┌ Author email ────────────────────────────────────────────────┐
+ │ jane@example.com                                             │
+ └──────────────────────────────────────────────────────────────┘
 
- Use nyoncode/laravel-package-toolkit for the service provider? (yes/no) [yes]:
- >
+ ┌ Which service provider should the package have? ─────────────┐
+ │ nyoncode/laravel-package-toolkit, with fluent ->hasX() calls │
+ └──────────────────────────────────────────────────────────────┘
+
+ ┌ Which Laravel versions should the package support? ──────────┐
+ │ Laravel 12                                                   │
+ │ Laravel 13                                                   │
+ └──────────────────────────────────────────────────────────────┘
+
+  Package           acme/laravel-blog
+  Description       A Laravel package.
+  Namespace         Acme\Blog
+  Author            Jane Doe <jane@example.com>
+  Service provider  nyoncode/laravel-package-toolkit
+  Laravel           12, 13
+
+ ┌ Create the package with these settings? ─────────────────────┐
+ │ ● Yes / ○ No                                                 │
+ └──────────────────────────────────────────────────────────────┘
 ```
 
-Press Enter to accept the default in brackets. Every question has an option, so the command also runs without prompts, for example in a
-script:
+Nothing is written before you confirm the summary, and `Ctrl+U` takes you back to the previous
+question. See [Interactive mode](interactive.md) for the questions in another language and for
+terminals that cannot draw prompts.
+
+Every question has an option, and a question whose option you pass is not asked. So the command
+also runs without prompts, for example in a script:
 
 ```bash
 anvil package:init --name=acme/laravel-blog --toolkit --no-interaction
 ```
 
-With `--no-interaction`, every value you leave out falls back to the default shown in the
-brackets.
+With `--no-interaction`, every value you leave out falls back to its default, and there is no
+summary to confirm.
 
 ## Options
 
@@ -225,8 +252,8 @@ vendor/bin/pest
 
 ## Laravel versions
 
-`--laravel` takes `12`, `13` or both (`12,13`, the default). The constraints follow from the
-versions you choose:
+`--laravel` takes `12`, `13` or both (`12,13`, the default for a new package; an existing one
+keeps the versions it requires). The constraints follow from the versions you choose:
 
 | | Laravel 12 | Laravel 13 | Laravel 12 + 13 |
 |---|---|---|---|
@@ -346,6 +373,8 @@ Every later `make:*` command [registers its file](service-provider.md) in this p
 `package:init` is safe to run on a package that already exists, whether its provider is a
 plain Laravel `ServiceProvider`, a toolkit provider or a
 [spatie/laravel-package-tools](https://github.com/spatie/laravel-package-tools) provider.
+Afterwards, [`package:doctor`](doctor.md) shows which of the package's files the provider
+does not register yet.
 
 ```bash
 composer require --dev nyoncode/laravel-package-console
@@ -381,17 +410,60 @@ whose parent class name ends in `ServiceProvider`:
 The class it finds goes first in `extra.laravel.providers`, so Laravel's package discovery loads
 it. No second provider is created.
 
+### Editing the package's settings
+
+Run in a terminal, `package:init` on an existing package is also the way to change its
+settings. Every question is prefilled from `composer.json`, so Enter keeps a value and a new
+answer replaces it. The summary shows what changes:
+
+```
+  Package           acme/laravel-blog
+  Description       A blog. → A blog for Laravel.
+  Namespace         Acme\Blog
+  Author            Jane Doe <jane@example.com>
+  Service provider  nyoncode/laravel-package-toolkit
+  Laravel           13 → 12, 13
+```
+
+| Setting | Prefilled from | When it changes |
+|---|---|---|
+| Package name | `name` | `name` is replaced |
+| Description | `description` | `description` is replaced |
+| Author name and email | the first entry of `authors` | its `name` and `email` are replaced, its other keys (`role`, `homepage`) are kept |
+| Laravel versions | `illuminate/support` (or another `illuminate/*` package, or `laravel/framework`) | the constraints below are rewritten |
+| Namespace | the PSR-4 entry for `src/` | not asked: renaming it would break every class of the package |
+| Service provider | the provider | not asked: generators register in the provider's own style |
+
+When the Laravel versions change, the `illuminate/*` and `laravel/framework` constraints in
+`require` and `orchestra/testbench`, `pestphp/pest` and `pestphp/pest-plugin-laravel` in
+`require-dev` are set as in [Laravel versions](#laravel-versions). `php` is only raised, when it
+allows a PHP version the new Laravel versions do not support (`^8.2` becomes `^8.3` when
+Laravel 12 is dropped); a package that requires a newer PHP keeps its constraint. The CI
+workflow is not rewritten, because you may have edited it. When its matrix no longer matches,
+`package:init` says so:
+
+```
+  WARN The CI matrix in .github/workflows/tests.yml does not match the new Laravel versions. Update it by hand, or delete it and run package:init again.
+```
+
+With `--no-interaction` nothing is asked, so nothing that is there changes, except what an
+option says: `--description`, `--author`, `--email`, `--name` and `--laravel` replace the
+current values as an answer would. `--namespace` does not rename an existing namespace:
+
+```
+  WARN Kept the namespace Acme\Blog from composer.json: package:init does not rename the namespace of existing classes.
+```
+
 ### composer.json
 
-`package:init` **completes** the file and keeps what is there:
+Apart from the settings above, `package:init` **completes** the file and keeps what is there:
 
-- `name` is set from `--name`, or from the answer to the prompt, whose default is the current
-  name.
-- `description` is only replaced when you pass `--description`.
 - `type`, `keywords`, `license`, `authors`, `minimum-stability`, `prefer-stable` and the `config`
-  settings are only added when they are missing.
+  settings are only added when they are missing. Git's `user.name` and `user.email` fill in an
+  author `composer.json` does not have, not the email of one it has.
 - Packages in `require`, `require-dev` and `scripts` are only added when they are missing. An
-  existing constraint, such as `"orchestra/testbench": "^10.5"`, is kept.
+  existing constraint, such as `"orchestra/testbench": "^10.5"`, is kept unless the Laravel
+  versions change.
 - If an existing PSR-4 entry maps a namespace to `src/`, Anvil keeps it as the root namespace and
   only adds the factories entry.
 - The toolkit is only added with `--toolkit` (see

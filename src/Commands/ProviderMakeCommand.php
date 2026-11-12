@@ -17,6 +17,8 @@ final class ProviderMakeCommand extends GenerateCommand
 {
     protected string $type = 'Provider';
 
+    protected string $example = 'EventServiceProvider';
+
     private bool $main = false;
 
     public function handle(): int

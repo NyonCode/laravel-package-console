@@ -9,6 +9,8 @@ final class RuleMakeCommand extends GenerateCommand
 {
     protected string $type = 'Rule';
 
+    protected string $example = 'Slug';
+
     protected string $namespace = 'Rules';
 
     protected string $stub = 'rule.stub';

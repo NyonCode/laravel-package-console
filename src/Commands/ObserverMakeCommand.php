@@ -12,6 +12,8 @@ final class ObserverMakeCommand extends GenerateCommand
 
     protected string $type = 'Observer';
 
+    protected string $example = 'PostObserver';
+
     protected string $namespace = 'Observers';
 
     public function getStub(): string
@@ -38,6 +40,32 @@ final class ObserverMakeCommand extends GenerateCommand
                 $this->classBasename($this->qualifyModel($this->option('model')))
             ));
         }
+    }
+
+    protected function afterPromptingForMissingArguments(): void
+    {
+        if ($this->option('model')) {
+            return;
+        }
+
+        $model = $this->prompts()->suggest(
+            $this->trans('What model should this observer apply to?'),
+            $this->classesIn('Models'),
+            hint: $this->trans('Optional.'),
+            validate: fn (string $value) => ($error = $this->validationError('--model', $value)) !== null ? $this->trans($error) : null,
+        );
+
+        if ($model !== '') {
+            $this->input()->setOption('model', $model);
+        }
+    }
+
+    protected function getValidationRules(): array
+    {
+        return [
+            ...parent::getValidationRules(),
+            '--model' => [$this->classOptionRule('The model must be a class name that PHP does not reserve, e.g. "Post", "Admin/Post" or "\\App\\Models\\User".')],
+        ];
     }
 
     protected function getOptions(): array

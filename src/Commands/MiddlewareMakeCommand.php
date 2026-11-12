@@ -11,6 +11,8 @@ final class MiddlewareMakeCommand extends GenerateCommand
 {
     protected string $type = 'Middleware';
 
+    protected string $example = 'EnsureAuthor';
+
     protected string $namespace = 'Http\\Middleware';
 
     protected string $stub = 'middleware.stub';

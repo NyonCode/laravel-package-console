@@ -166,6 +166,26 @@ The details:
 - **Missing methods.** If `register()` or `boot()` is missing, Anvil creates it.
 - **The `//` placeholder.** A method that holds only `//` has it replaced by the first statement.
 - **New code goes at the end** of the method, after your own code.
+- **Views and translations keep their namespace.** When the provider already calls
+  `loadViewsFrom(…, 'laravel-blog')`, the views are published to
+  `resource_path('views/vendor/laravel-blog')`, where Laravel looks for them, and not under the
+  short name. The same goes for `loadTranslationsFrom()`.
+- **What the provider already registers is left alone**, however it is written. Anvil reads the
+  path of every `mergeConfigFrom()`, `loadRoutesFrom()`, `loadViewsFrom()`,
+  `loadTranslationsFrom()`, `loadJsonTranslationsFrom()`, `loadMigrationsFrom()`, `publishes()`,
+  `publishesMigrations()` and `require` in the class, in any method, so these all count:
+
+  | The provider has | Anvil does not add |
+  |---|---|
+  | `$this->loadRoutesFrom(__DIR__ . '/../routes/api.php');` | `loadRoutesFrom()` for `routes/api.php` |
+  | `require __DIR__.'/../routes/api.php';` in a `Route::group()` | `loadRoutesFrom()` for `routes/api.php` |
+  | `$this->loadRoutesFrom($this->basePath('routes/api.php'));` | `loadRoutesFrom()` for `routes/api.php` |
+  | `$this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations');` | `publishesMigrations()` |
+  | `$this->publishes([…'/../database/migrations/create_tags_table.php.stub' => …]);` | `publishesMigrations()` |
+  | `$this->publishes([__DIR__ . '/../config' => config_path()], 'config');` | `publishes()` for `config/blog.php` |
+
+  The same holds for the `packageBooted()` and `packageRegistered()` hooks in
+  [Spatie mode](#spatie-mode).
 
 ## Providers with a parent class
 

@@ -15,6 +15,8 @@ final class MailMakeCommand extends GenerateCommand
 
     protected string $type = 'Mailable';
 
+    protected string $example = 'PostDigest';
+
     protected string $namespace = 'Mail';
 
     protected string $stub = 'mail.stub';

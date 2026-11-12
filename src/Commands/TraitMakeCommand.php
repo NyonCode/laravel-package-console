@@ -9,6 +9,8 @@ final class TraitMakeCommand extends GenerateCommand
 {
     protected string $type = 'Trait';
 
+    protected string $example = 'HasSlug';
+
     protected string $namespace = 'Concerns';
 
     protected string $stub = 'trait.stub';

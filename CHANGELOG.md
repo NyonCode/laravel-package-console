@@ -2,6 +2,71 @@
 
 All notable changes to `nyoncode/laravel-package-console` are documented in this file.
 
+## Unreleased
+
+### Added
+
+- `package:doctor` compares the files of a package with what its service provider and
+  `composer.json` register. It reports config, routes, migrations, seeders, views,
+  translations, commands and view components that nothing registers, registrations of files
+  and classes that do not exist, providers missing from `extra.laravel.providers` and classes
+  that are not where PSR-4 expects them. `--fix` registers what is missing, the way the
+  generators do; `--strict` fails on warnings; `--json` prints the findings. See
+  [Checking a package](docs/doctor.md).
+
+- Interactive mode with [Laravel Prompts](https://laravel.com/docs/prompts). A generator that
+  is run without its name asks for it, validates it as it is submitted and then asks about its
+  options: `make:model` offers the migration, factory, seeder, policy and controller,
+  `make:controller` its type and model, `make:listener` the event, `make:observer` and
+  `make:policy` the model, `make:test` the suite and the framework. Models and events of the
+  package are suggested. `package:init` shows a summary and writes nothing before it is
+  confirmed (`Ctrl+U` goes back a question), and asks for the Laravel versions.
+  `package:doctor --fix` asks which findings to fix. Nothing is asked with `--no-interaction`;
+  where prompts cannot be drawn (Windows without WSL, piped input) the same questions are
+  asked as plain text. See [Interactive mode](docs/interactive.md).
+- The questions are translated. English and Czech ship with Anvil; the language comes from
+  `ANVIL_LANG` or the system locale. The output of the commands stays in English.
+- `make:lang --locale=en,cs` creates the file for several locales at once.
+- `package:doctor` compares the languages of a package: it warns about keys one language has
+  and another lacks, and `--fix` adds them with the text of the language that has them. It
+  also warns about translation keys the code uses that no language defines.
+- `package:init` edits an existing package: every question is prefilled from `composer.json`,
+  a changed answer is written (name, description, author, Laravel versions) and the summary
+  shows what changes. Changing the Laravel versions rewrites the Laravel, Testbench and Pest
+  constraints and raises PHP when needed, and warns when the CI matrix no longer matches.
+  Without a terminal only what an option says is changed. See
+  [Editing the package's settings](docs/package-init.md#editing-the-packages-settings).
+
+### Changed
+
+- On an existing package, `package:init` no longer asks for the namespace (it is never renamed;
+  `--namespace` asking for another one is a warning), takes the Laravel versions it requires
+  as the default instead of 12 and 13, and no longer adds git's email to an author that has
+  none. `--author`, `--email` and `--laravel` now replace the current values, as `--name` and
+  `--description` already did.
+- `package:init` validates the root namespace and no longer guesses one that starts with a
+  digit (`9lives/3d-tools` gives `Package9lives\Package3dTools`).
+- Requires `laravel/prompts` and the `mbstring` extension.
+
+### Fixed
+
+- `--model` (`make:controller`, `make:factory`, `make:observer`, `make:policy`) and `--event`
+  (`make:listener`) are validated as class names. A value such as `"Post Model"` or
+  `"Admin/Class"` used to be written into the generated `use` statement and type.
+
+- In a plain provider that loads its views or translations under a namespace other than the
+  short name, they are now published under that namespace
+  (`resource_path('views/vendor/laravel-blog')`), where Laravel looks for them.
+
+- In a plain provider (and in the `packageBooted()`/`packageRegistered()` hooks of a Spatie one),
+  a generator no longer registers a resource the provider already registers in its own words.
+  Anvil used to look for the exact code it writes, so
+  `$this->loadRoutesFrom(__DIR__ . '/../routes/api.php')` or
+  `$this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations')` got a second
+  registration. It now reads the paths the provider registers: any spelling of the path, in any
+  method, with `loadMigrationsFrom()` and `publishes()` standing in for `publishesMigrations()`
+  and a published directory covering the files in it.
+
 ## 1.0.1 - 2026-11-07
 
 Installing Anvil into an existing package is now safe.

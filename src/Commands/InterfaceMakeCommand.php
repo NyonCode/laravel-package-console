@@ -9,6 +9,8 @@ final class InterfaceMakeCommand extends GenerateCommand
 {
     protected string $type = 'Interface';
 
+    protected string $example = 'Publishable';
+
     protected string $namespace = 'Contracts';
 
     protected string $stub = 'interface.stub';

@@ -52,6 +52,20 @@ trait InputValidator
     }
 
     /**
+     * The first error of one value under the rules of an argument, or of an "--option".
+     */
+    protected function validationError(string $key, mixed $value): ?string
+    {
+        $rules = $this->getValidationRules()[$key] ?? [];
+
+        foreach (Validation::createValidator()->validate($value, $rules) as $violation) {
+            return (string) $violation->getMessage();
+        }
+
+        return null;
+    }
+
+    /**
      * Validation rules keyed by argument name, or by "--option" for options.
      *
      * @return array<string, list<Constraint>>

@@ -9,6 +9,8 @@ final class NotificationMakeCommand extends GenerateCommand
 {
     protected string $type = 'Notification';
 
+    protected string $example = 'PostCommented';
+
     protected string $namespace = 'Notifications';
 
     protected string $stub = 'notification.stub';

@@ -18,6 +18,11 @@ final class LangMakeCommand extends FileGenerateCommand
 
     protected string $stub = 'lang.stub';
 
+    /**
+     * The locale of the file being written.
+     */
+    private string $locale = 'en';
+
     protected function getNameInput(): string
     {
         $name = parent::getNameInput() ?: 'messages';
@@ -25,17 +30,57 @@ final class LangMakeCommand extends FileGenerateCommand
         return str_ends_with($name, '.php') ? substr($name, 0, -4) : $name;
     }
 
-    protected function getFilePath(string $name): string
+    /**
+     * One file per locale of --locale ("cs,en"). The translations are registered once.
+     */
+    public function handle(): int
     {
-        $locale = (string) $this->option('locale');
+        $name = $this->getNameInput();
+        $created = false;
+        $failed = false;
 
-        if (! preg_match('/^[A-Za-z0-9_-]+$/', $locale)) {
-            throw new RuntimeException('The locale may only contain letters, numbers, "_" and "-".');
+        foreach ($this->locales() as $locale) {
+            $this->locale = $locale;
+
+            if ($this->writeFile($this->getFilePath($name), $this->buildFile($name))) {
+                $created = true;
+            } else {
+                $failed = true;
+            }
         }
 
+        if ($created) {
+            $this->afterGenerate($name, '');
+        }
+
+        return $failed ? self::FAILURE : self::SUCCESS;
+    }
+
+    protected function getFilePath(string $name): string
+    {
         $lang = $this->package()->translationsPath();
 
-        return $this->package()->path($this->option('json') ? "$lang/$locale.json" : "$lang/$locale/$name.php");
+        return $this->package()->path($this->option('json') ? "$lang/{$this->locale}.json" : "$lang/{$this->locale}/$name.php");
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function locales(): array
+    {
+        $locales = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) $this->option('locale'))))));
+
+        foreach ($locales as $locale) {
+            if (! preg_match('/^[A-Za-z0-9_-]+$/', $locale)) {
+                throw new RuntimeException('The locale may only contain letters, numbers, "_" and "-".');
+            }
+        }
+
+        if ($locales === []) {
+            throw new RuntimeException('The --locale option needs at least one locale.');
+        }
+
+        return $locales;
     }
 
     protected function buildFile(string $name): string
@@ -60,7 +105,7 @@ final class LangMakeCommand extends FileGenerateCommand
     protected function getOptions(): array
     {
         return [
-            ['locale', 'l', InputOption::VALUE_REQUIRED, 'The locale', 'en'],
+            ['locale', 'l', InputOption::VALUE_REQUIRED, 'The locale, or several separated by commas (cs,en)', 'en'],
             ['json', null, InputOption::VALUE_NONE, 'Create a JSON translation file for the locale'],
             ...parent::getOptions(),
         ];

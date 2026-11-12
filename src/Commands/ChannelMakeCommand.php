@@ -9,6 +9,8 @@ final class ChannelMakeCommand extends GenerateCommand
 {
     protected string $type = 'Channel';
 
+    protected string $example = 'PostChannel';
+
     protected string $namespace = 'Broadcasting';
 
     protected string $stub = 'channel.stub';

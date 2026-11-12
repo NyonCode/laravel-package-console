@@ -75,9 +75,15 @@ A generator that prints no `DONE` line found the registration already in place. 
 
 - `->hasConfig()` without arguments already covers every config file;
 - `->hasRoutes()` without arguments discovers every route file;
-- the views were already registered by an earlier `make:view`.
+- the views were already registered by an earlier `make:view`;
+- a plain provider already loads the file its own way, e.g.
+  `$this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations')`.
 
-See [Service provider registration](service-provider.md#toolkit-mode).
+See [Service provider registration](service-provider.md#toolkit-mode) and, for a plain provider,
+[Plain mode](service-provider.md#plain-mode).
+
+To see everything the provider does and does not register, run
+[`php anvil package:doctor`](doctor.md).
 
 Some generators never register anything, by design: classes such as models, controllers and
 jobs are autoloaded and need no registration. `make:middleware` registers only with `--alias`,

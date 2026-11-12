@@ -13,6 +13,8 @@ final class SeederMakeCommand extends GenerateCommand
 {
     protected string $type = 'Seeder';
 
+    protected string $example = 'PostSeeder';
+
     protected string $stub = 'seeder.stub';
 
     public function qualifyClass(string $name): string

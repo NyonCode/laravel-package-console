@@ -16,6 +16,7 @@ description: Every Anvil command with its arguments, options, shortcuts and defa
 |---|---|---|---|
 | `package:init` | `composer.json`, provider, config, tests, tooling | `extra.laravel.providers` | [Creating a package](package-init.md) |
 | `package:info` | | | [How Anvil reads your package](how-it-works.md#packageinfo) |
+| `package:doctor` | | with `--fix`: whatever the files of the package need | [Checking a package](doctor.md) |
 | `make:structure` | the standard directories | | [Creating a package](package-init.md#makestructure) |
 | `make:provider` | `src/{Package}ServiceProvider.php`, `src/Providers/*` | `extra.laravel.providers` | [Classes](classes.md#makeprovider) |
 | `make:config` | `config/*.php` | `hasConfig()` / `mergeConfigFrom` + `publishes` | [Config & routes](config-and-routes.md#makeconfig) |
@@ -316,7 +317,7 @@ make:lang [options] [--] [<name>]
 | Argument / option | Type | Default | Description |
 |---|---|---|---|
 | `name` | optional | `messages` | The name of the translation file |
-| `-l`, `--locale=` | value | `en` | The locale |
+| `-l`, `--locale=` | value | `en` | The locale, or several separated by commas (cs,en) |
 | `--json` | flag |  | Create a JSON translation file for the locale |
 | `-f`, `--force` | flag |  | Create the translation even if it already exists |
 
@@ -583,6 +584,20 @@ make:view [options] [--] <name>
 |---|---|---|---|
 | `name` | required |  | The name of the view |
 | `-f`, `--force` | flag |  | Create the view even if it already exists |
+
+### `package:doctor`
+
+Check that the service provider and composer.json match the files of the package.
+
+```
+package:doctor [options]
+```
+
+| Argument / option | Type | Default | Description |
+|---|---|---|---|
+| `--fix` | flag |  | Register what is missing in the service provider and composer.json |
+| `--strict` | flag |  | Exit with 1 on warnings as well as on errors |
+| `--json` | flag |  | Print the findings as JSON |
 
 ### `package:info`
 

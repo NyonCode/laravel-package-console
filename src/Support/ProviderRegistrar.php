@@ -31,14 +31,42 @@ final class ProviderRegistrar
 
     private ?string $parentClass = null;
 
+    private bool $previewing = false;
+
+    /**
+     * The provider's code with everything registered so far, while previewing.
+     */
+    private ?string $preview = null;
+
     public function __construct(private readonly Package $package) {}
+
+    /**
+     * Register in memory only. Registrations build on one another, as they would on disk, and
+     * previewedCode() is the provider they add up to. A previewing registrar is also careful:
+     * where the provider registers something of the same kind in a way that cannot be read
+     * (`$this->loadRoutesFrom($routes)`), it answers UNKNOWN instead of adding a second copy.
+     */
+    public function preview(): static
+    {
+        $this->previewing = true;
+
+        return $this;
+    }
+
+    /**
+     * The provider's code after the previewed registrations; null when none changed it.
+     */
+    public function previewedCode(): ?string
+    {
+        return $this->preview;
+    }
 
     public function config(string $file): Registration
     {
         $key = basename($file, '.php');
         $statements = [
-            ['register', "\$this->mergeConfigFrom({$this->path("config/$file")}, '$key');"],
-            ['boot', "\$this->publishes([\n    {$this->path("config/$file")} => config_path('$file'),\n], '{$this->tag('config')}');"],
+            ['register', "\$this->mergeConfigFrom({$this->path("config/$file")}, '$key');", [['mergeConfigFrom'], "config/$file"]],
+            ['boot', "\$this->publishes([\n    {$this->path("config/$file")} => config_path('$file'),\n], '{$this->tag('config')}');", [['publishes'], "config/$file"]],
         ];
 
         return $this->apply(
@@ -55,7 +83,7 @@ final class ProviderRegistrar
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasRoutes', "'$file'", "hasRoutes(['$file'])"),
             laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "\$this->loadRoutesFrom({$this->path("routes/$file")});"],
+                ['boot', "\$this->loadRoutesFrom({$this->path("routes/$file")});", [['loadRoutesFrom', 'require'], "routes/$file"]],
             ]),
             spatie: fn (PhpFileEditor $e) => $this->spatieCall($e, ['hasRoute', 'hasRoutes'], "'$name'", "hasRoute('$name')"),
         );
@@ -63,7 +91,7 @@ final class ProviderRegistrar
 
     public function broadcastChannels(string $file): Registration
     {
-        $statements = [['boot', "require {$this->path("routes/$file")};"]];
+        $statements = [['boot', "require {$this->path("routes/$file")};", [['require'], "routes/$file"]]];
 
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasBroadcastChannels', "'$file'", "hasBroadcastChannels(['$file'])"),
@@ -82,7 +110,7 @@ final class ProviderRegistrar
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasMigrations', $file !== null ? "'$file'" : null, 'hasMigrations()'),
             laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "\$this->publishesMigrations([\n    {$this->path('database/migrations')} => database_path('migrations'),\n], '{$this->tag('migrations')}');"],
+                ['boot', "\$this->publishesMigrations([\n    {$this->path('database/migrations')} => database_path('migrations'),\n], '{$this->tag('migrations')}');", [['publishesMigrations', 'publishes', 'loadMigrationsFrom'], 'database/migrations']],
             ]),
             spatie: function (PhpFileEditor $e) use ($name) {
                 if ($name === null || in_array('discoversMigrations', array_column($e->packagerCalls(), 'name'), true)) {
@@ -99,7 +127,7 @@ final class ProviderRegistrar
      */
     public function seeders(?string $file = null): Registration
     {
-        $statements = [['boot', "\$this->publishes([\n    {$this->path('database/seeders')} => database_path('seeders'),\n], '{$this->tag('seeders')}');"]];
+        $statements = [['boot', "\$this->publishes([\n    {$this->path('database/seeders')} => database_path('seeders'),\n], '{$this->tag('seeders')}');", [['publishes'], 'database/seeders']]];
 
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasSeeders', $file !== null ? "'$file'" : null, 'hasSeeders()'),
@@ -114,10 +142,14 @@ final class ProviderRegistrar
 
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasViews', null, 'hasViews()'),
-            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "\$this->loadViewsFrom({$this->path('resources/views')}, '$short');"],
-                ['boot', "\$this->publishes([\n    {$this->path('resources/views')} => resource_path('views/vendor/$short'),\n], '{$this->tag('views')}');"],
-            ]),
+            laravel: function (PhpFileEditor $e) use ($short) {
+                $namespace = $this->loadedNamespace($e, 'loadViewsFrom') ?? $short;
+
+                return $this->laravelStatements($e, [
+                    ['boot', "\$this->loadViewsFrom({$this->path('resources/views')}, '$namespace');", [['loadViewsFrom'], 'resources/views']],
+                    ['boot', "\$this->publishes([\n    {$this->path('resources/views')} => resource_path('views/vendor/$namespace'),\n], '{$this->tag('views')}');", [['publishes'], 'resources/views']],
+                ]);
+            },
             spatie: fn (PhpFileEditor $e) => $this->spatieCall($e, ['hasViews'], '', 'hasViews()'),
         );
     }
@@ -129,11 +161,15 @@ final class ProviderRegistrar
 
         return $this->apply(
             toolkit: fn (PhpFileEditor $e) => $this->toolkitResource($e, 'hasTranslations', null, 'hasTranslations()'),
-            laravel: fn (PhpFileEditor $e) => $this->laravelStatements($e, [
-                ['boot', "\$this->loadTranslationsFrom({$this->path($lang)}, '$short');"],
-                ['boot', "\$this->loadJsonTranslationsFrom({$this->path($lang)});"],
-                ['boot', "\$this->publishes([\n    {$this->path($lang)} => lang_path('vendor/$short'),\n], '{$this->tag('translations')}');"],
-            ]),
+            laravel: function (PhpFileEditor $e) use ($short, $lang) {
+                $namespace = $this->loadedNamespace($e, 'loadTranslationsFrom') ?? $short;
+
+                return $this->laravelStatements($e, [
+                    ['boot', "\$this->loadTranslationsFrom({$this->path($lang)}, '$namespace');", [['loadTranslationsFrom'], $lang]],
+                    ['boot', "\$this->loadJsonTranslationsFrom({$this->path($lang)});", [['loadJsonTranslationsFrom'], $lang]],
+                    ['boot', "\$this->publishes([\n    {$this->path($lang)} => lang_path('vendor/$namespace'),\n], '{$this->tag('translations')}');", [['publishes'], $lang]],
+                ]);
+            },
             spatie: fn (PhpFileEditor $e) => $this->spatieCall($e, ['hasTranslations'], '', 'hasTranslations()'),
         );
     }
@@ -303,7 +339,7 @@ final class ProviderRegistrar
             return Registration::noProvider();
         }
 
-        $editor = PhpFileEditor::fromFile($path);
+        $editor = $this->preview !== null ? new PhpFileEditor($this->preview) : PhpFileEditor::fromFile($path);
         $this->mode = $editor->mode();
         $this->parentClass = $editor->parentClass();
 
@@ -312,6 +348,12 @@ final class ProviderRegistrar
             'spatie' => $spatie($editor->usingConfigurationMethod('configurePackage')),
             default => $laravel($editor),
         };
+
+        if ($result->status === Registration::REGISTERED && $this->previewing) {
+            $this->preview = $editor->code();
+
+            return $result;
+        }
 
         if ($result->status === Registration::REGISTERED) {
             file_put_contents($path, $editor->code());
@@ -414,23 +456,37 @@ final class ProviderRegistrar
 
     /**
      * Add statements to register()/boot() (spatie: packageRegistered()/packageBooted()) unless
-     * the file already contains them.
+     * the provider already has them.
      *
-     * @param  list<array{0: string, 1: string, 2?: string}>  $statements  [method, code, dedupe needle] tuples
+     * A statement that registers a path names the calls that cover it and the path, relative to
+     * the package root: the provider is then read for what it registers, so a hand-written
+     * `$this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations')` counts. Any other
+     * statement is looked up as text.
+     *
+     * @param  list<array{0: string, 1: string, 2?: array{0: list<string>, 1: string}}>  $statements  [method, code, [covering calls, path]] tuples
      */
     private function laravelStatements(PhpFileEditor $editor, array $statements): Registration
     {
         $added = [];
         $manual = null;
 
+        if ($this->previewing) {
+            foreach ($statements as $statement) {
+                if (isset($statement[2]) && ! $this->covered($editor, ...$statement[2])
+                    && ($unreadable = $this->unreadable($editor, ...$statement[2])) !== null) {
+                    return Registration::unknown("the service provider calls $unreadable, which may or may not cover {$statement[2][1]}.");
+                }
+            }
+        }
+
         foreach ($statements as $statement) {
             [$method, $code] = $statement;
             $method = $this->mode === 'spatie' ? self::SPATIE_HOOKS[$method] : $method;
             $lines = explode("\n", $code);
             // Multi-line blocks (publishes) are identified by their distinctive second line.
-            $needle = $statement[2] ?? trim($lines[count($lines) > 1 ? 1 : 0]);
+            $needle = trim($lines[count($lines) > 1 ? 1 : 0]);
 
-            if ($editor->contains($needle)) {
+            if (isset($statement[2]) ? $this->covered($editor, ...$statement[2]) : $editor->contains($needle)) {
                 continue;
             }
 
@@ -456,6 +512,75 @@ final class ProviderRegistrar
         }
 
         return Registration::registered(implode(' and ', $parts), $manual?->message);
+    }
+
+    /**
+     * Whether one of $calls in the provider already registers $path: the path itself, a
+     * directory it is in (publishes(config/) covers config/blog.php) or a file inside it
+     * (publishing single migration files covers database/migrations).
+     *
+     * A path the code does not spell out (`$this->basePath('routes/web.php')`) counts when one
+     * of its string literals ends with $path.
+     *
+     * @param  list<string>  $calls
+     */
+    private function covered(PhpFileEditor $editor, array $calls, string $path): bool
+    {
+        foreach ($editor->registrations($this->providerDirectory()) as $registration) {
+            if (! in_array($registration['call'], $calls, true)) {
+                continue;
+            }
+
+            $registered = $registration['path'];
+
+            if ($registered !== null) {
+                if ($registered !== '' && (str_starts_with("$path/", "$registered/") || str_starts_with("$registered/", "$path/"))) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            foreach ($registration['literals'] as $literal) {
+                if (str_ends_with('/'.trim(str_replace('\\', '/', $literal), '/'), "/$path")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The namespace the provider already loads its views or translations under, so what is
+     * published for them goes where Laravel looks: loadViewsFrom(..., 'laravel-blog') ->
+     * resource_path('views/vendor/laravel-blog').
+     */
+    private function loadedNamespace(PhpFileEditor $editor, string $call): ?string
+    {
+        foreach ($editor->registrations($this->providerDirectory()) as $registration) {
+            if ($registration['call'] === $call && $registration['name'] !== null && preg_match('/^[\w.-]+$/', $registration['name'])) {
+                return $registration['name'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A call among $calls whose path cannot be read from the code: "loadRoutesFrom($routes)".
+     *
+     * @param  list<string>  $calls
+     */
+    private function unreadable(PhpFileEditor $editor, array $calls, string $path): ?string
+    {
+        foreach ($editor->registrations($this->providerDirectory()) as $registration) {
+            if ($registration['path'] === null && $registration['call'] !== 'require' && in_array($registration['call'], $calls, true)) {
+                return "{$registration['call']}({$registration['source']})";
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -492,13 +617,22 @@ final class ProviderRegistrar
      */
     private function path(string $relative): string
     {
-        $providerDir = dirname((string) $this->package->mainProviderPath());
-        $relativeDir = $providerDir === $this->package->path()
-            ? ''
-            : trim(str_replace('\\', '/', $this->package->relativePath($providerDir)), '/');
+        $relativeDir = $this->providerDirectory();
         $depth = $relativeDir === '' ? 0 : substr_count($relativeDir, '/') + 1;
 
         return "__DIR__.'/".str_repeat('../', $depth).$relative."'";
+    }
+
+    /**
+     * The main provider's directory, relative to the package root: "src", "src/Providers".
+     */
+    private function providerDirectory(): string
+    {
+        $providerDir = dirname((string) $this->package->mainProviderPath());
+
+        return $providerDir === $this->package->path()
+            ? ''
+            : trim(str_replace('\\', '/', $this->package->relativePath($providerDir)), '/');
     }
 
     private function tag(string $group): string

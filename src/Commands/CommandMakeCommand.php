@@ -13,6 +13,8 @@ final class CommandMakeCommand extends GenerateCommand
 {
     protected string $type = 'Console command';
 
+    protected string $example = 'SyncPostsCommand';
+
     protected string $namespace = 'Commands';
 
     protected string $stub = 'console.stub';

@@ -9,6 +9,8 @@ final class ScopeMakeCommand extends GenerateCommand
 {
     protected string $type = 'Scope';
 
+    protected string $example = 'PublishedScope';
+
     protected string $namespace = 'Models\\Scopes';
 
     protected string $stub = 'scope.stub';

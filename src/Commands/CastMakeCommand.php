@@ -10,6 +10,8 @@ final class CastMakeCommand extends GenerateCommand
 {
     protected string $type = 'Cast';
 
+    protected string $example = 'Json';
+
     protected string $namespace = 'Casts';
 
     public function getStub(): string

@@ -12,7 +12,9 @@ use NyonCode\LaravelPackageConsole\Support\Registration;
 use RuntimeException;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Finder\Finder;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Component\Validator\Context\ExecutionContextInterface;
 
 /**
  * Generates a class from a stub (the package's counterpart of Laravel's GeneratorCommand).
@@ -38,6 +40,11 @@ abstract class GenerateCommand extends BaseCommand
      * Namespace relative to the package root namespace, e.g. "Http\Controllers".
      */
     protected string $namespace = '';
+
+    /**
+     * A typical name, shown as the placeholder when the name is asked for.
+     */
+    protected string $example = '';
 
     public function __construct()
     {
@@ -65,6 +72,48 @@ abstract class GenerateCommand extends BaseCommand
         $this->afterGenerate($class, $path);
 
         return static::SUCCESS;
+    }
+
+    /**
+     * "What should the model be named?", with an example as the placeholder.
+     */
+    protected function promptForArgument(InputArgument $argument): array
+    {
+        if ($argument->getName() !== 'name' || $this->getType() === '') {
+            return parent::promptForArgument($argument);
+        }
+
+        return [
+            $this->trans('What should the :type be named?', ['type' => $this->trans(strtolower($this->getType()))]),
+            $this->example !== '' ? $this->trans('E.g. :example', ['example' => $this->example]) : '',
+        ];
+    }
+
+    /**
+     * Classes the package has in a namespace below the root one, as generators take them:
+     * "Models" -> ["Post", "Admin/Report"].
+     *
+     * @return list<string>
+     */
+    protected function classesIn(string $namespace): array
+    {
+        try {
+            $directory = dirname((string) $this->package()->pathForClass($this->packageRootNamespace().'\\'.$namespace.'\\_'));
+        } catch (RuntimeException) {
+            return [];
+        }
+
+        if (! is_dir($directory)) {
+            return [];
+        }
+
+        $classes = [];
+
+        foreach ((new Finder)->files()->in($directory)->name('*.php')->sortByName() as $file) {
+            $classes[] = str_replace('\\', '/', substr($file->getRelativePathname(), 0, -4));
+        }
+
+        return $classes;
     }
 
     /**
@@ -226,6 +275,30 @@ abstract class GenerateCommand extends BaseCommand
         return [
             ['name', InputArgument::REQUIRED, 'The name of the '.strtolower($this->getType())],
         ];
+    }
+
+    /**
+     * The rule for an option that names a class, such as --model or --event: "Post",
+     * "Admin/Post", "Acme\Blog\Models\Post" or "\App\Models\User". The value ends up in a
+     * use statement and a type, so it has to be a class name, and not one PHP reserves.
+     *
+     * @param  string  $message  The error, in English (it is translated when a prompt shows it).
+     */
+    protected function classOptionRule(string $message): Assert\Callback
+    {
+        return new Assert\Callback(function (mixed $value, ExecutionContextInterface $context) use ($message): void {
+            if ($value === null || $value === '') {
+                return;
+            }
+
+            $valid = is_string($value)
+                && preg_match('/^\\\\?[A-Za-z_][A-Za-z0-9_]*(?:[\/\\\\][A-Za-z_][A-Za-z0-9_]*)*$/', $value)
+                && ! $this->isReservedName($this->classBasename($value));
+
+            if (! $valid) {
+                $context->addViolation($message);
+            }
+        });
     }
 
     protected function getValidationRules(): array

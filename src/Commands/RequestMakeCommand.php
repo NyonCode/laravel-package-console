@@ -9,6 +9,8 @@ final class RequestMakeCommand extends GenerateCommand
 {
     protected string $type = 'Request';
 
+    protected string $example = 'StorePostRequest';
+
     protected string $namespace = 'Http\\Requests';
 
     protected string $stub = 'request.stub';

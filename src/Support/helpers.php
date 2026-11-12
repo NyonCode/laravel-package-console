@@ -1,6 +1,7 @@
 <?php
 
 use NyonCode\LaravelPackageConsole\Kernel;
+use NyonCode\LaravelPackageConsole\Support\Lang;
 use NyonCode\LaravelPackageConsole\Support\Package;
 
 if (! function_exists('anvil_package')) {
@@ -38,6 +39,18 @@ if (! function_exists('anvil_config')) {
     function anvil_config(string $key, mixed $default = null): mixed
     {
         return Kernel::config()->get($key, $default);
+    }
+}
+
+if (! function_exists('anvil_trans')) {
+    /**
+     * An interactive question in the user's language.
+     *
+     * @param  array<string, string|int>  $replace
+     */
+    function anvil_trans(string $line, array $replace = []): string
+    {
+        return Lang::get($line, $replace);
     }
 }
 

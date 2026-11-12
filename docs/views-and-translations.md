@@ -128,12 +128,13 @@ registered once for all components. Anonymous components need only the views.
 php anvil make:lang                      # lang/en/messages.php
 php anvil make:lang validation -l cs     # lang/cs/validation.php
 php anvil make:lang --json --locale=cs   # lang/cs.json
+php anvil make:lang --locale=en,cs       # lang/en/messages.php and lang/cs/messages.php
 ```
 
 | Argument / option | |
 |---|---|
 | `name` | File name without `.php`, default `messages`. Ignored with `--json`. |
-| `-l`, `--locale=` | The locale, default `en` |
+| `-l`, `--locale=` | The locale, default `en`. Several locales, separated by commas, create a file for each. |
 | `--json` | Create the JSON file of the locale |
 | `-f`, `--force` | Overwrite an existing file |
 
@@ -151,6 +152,20 @@ return [
   Use it with __('blog::messages.key')
 ```
 
+With several locales, the translations are still registered once:
+
+```
+$ php anvil make:lang --locale=en,cs
+
+  INFO Translation [lang/en/messages.php] created successfully.
+  INFO Translation [lang/cs/messages.php] created successfully.
+  DONE Registered loadTranslationsFrom(), loadJsonTranslationsFrom(), publishes() in boot() in src/BlogServiceProvider.php.
+  Use it with __('blog::messages.key')
+```
+
+A locale whose file already exists is reported and skipped (the command then exits with 1),
+and the other locales are still created.
+
 With spatie/laravel-package-tools, the files go to `resources/lang/` instead of `lang/`
 (`resources/lang/en/messages.php`, `resources/lang/cs.json`), because that is where the package
 tools load translations from.
@@ -165,3 +180,13 @@ keys are global strings, `__('Hello')`, merged with the application's own transl
 | `->hasTranslations()` | `->hasTranslations()` | `$this->loadTranslationsFrom(__DIR__.'/../lang', 'blog');`, `$this->loadJsonTranslationsFrom(__DIR__.'/../lang');` and `$this->publishes([__DIR__.'/../lang' => lang_path('vendor/blog')], 'blog-translations');` |
 
 Applications publish the translations to `lang/vendor/blog` and override them there.
+
+**Keeping the languages in step**
+
+[`package:doctor`](doctor.md#translations) warns when one language lacks keys another has, and
+when the code uses a key no language defines. `package:doctor --fix` adds the missing keys, with
+the text of the language that has them, ready to be translated:
+
+```
+  WARN  lang/cs/messages.php has no translation for 2 keys that en has: empty, actions.archive.
+```

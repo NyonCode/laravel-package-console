@@ -13,6 +13,8 @@ final class TestMakeCommand extends FileGenerateCommand
 {
     protected string $type = 'Test';
 
+    protected string $example = 'PostTest';
+
     public function getStub(): string
     {
         return $this->option('phpunit') ? 'test.phpunit.stub' : 'test.stub';
@@ -51,6 +53,23 @@ final class TestMakeCommand extends FileGenerateCommand
     private function suite(): string
     {
         return $this->option('unit') ? 'Unit' : 'Feature';
+    }
+
+    protected function afterPromptingForMissingArguments(): void
+    {
+        if (! $this->option('unit') && $this->prompts()->select($this->trans('Which type of test would you like?'), [
+            'feature' => $this->trans('Feature'),
+            'unit' => $this->trans('Unit'),
+        ]) === 'unit') {
+            $this->input()->setOption('unit', true);
+        }
+
+        if (! $this->option('phpunit') && $this->prompts()->select($this->trans('Which test framework should it use?'), [
+            'pest' => 'Pest',
+            'phpunit' => 'PHPUnit',
+        ]) === 'phpunit') {
+            $this->input()->setOption('phpunit', true);
+        }
     }
 
     protected function getOptions(): array

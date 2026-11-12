@@ -107,16 +107,35 @@ a file can never be written outside the package:
  [ERROR] The name may only contain letters, numbers, "_", "-", "." and "/".
 ```
 
+**Options that name a class.** `--model` (`make:controller`, `make:factory`, `make:observer`,
+`make:policy`) and `--event` (`make:listener`) end up in a `use` statement and a type, so they
+follow the rules of a class name: nested with `/` or `\`, optionally with a leading `\` for a
+class outside the package, and not a word PHP reserves:
+
+```
+$ php anvil make:controller PostController --model="Post Model"
+
+ [ERROR] The model must be a class name that PHP does not reserve, e.g. "Post",
+         "Admin/Post" or "\App\Models\User".
+```
+
+The same rules apply when the model or the event is [asked for](interactive.md#follow-up-questions).
+
 ## Missing arguments
 
-When you leave out a required argument in an interactive terminal, the generator asks for it:
+When you leave out a required argument in a terminal, the generator asks for it, and then about
+the options that go with it:
 
 ```
 $ php anvil make:model
 
- The name of the model:
- > Post
+ ┌ What should the model be named? ─────────────────────────────┐
+ │ E.g. Post                                                    │
+ └──────────────────────────────────────────────────────────────┘
 ```
+
+[Interactive mode](interactive.md) lists what each generator asks, and how to have the questions
+in your language.
 
 With `-n` / `--no-interaction` the command fails instead:
 

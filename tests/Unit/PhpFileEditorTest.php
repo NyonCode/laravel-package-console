@@ -87,9 +87,9 @@ it('reads and extends the Packager chain', function () {
     $editor = (new PhpFileEditor(TOOLKIT_PROVIDER))->appendPackagerCall('hasConfig()');
 
     expect($editor->packagerCalls())->toBe([
-        ['name' => 'name', 'args' => "'Blog'"],
-        ['name' => 'hasRoutes', 'args' => "['web.php']"],
-        ['name' => 'hasConfig', 'args' => ''],
+        ['name' => 'name', 'args' => "'Blog'", 'values' => [['Blog']]],
+        ['name' => 'hasRoutes', 'args' => "['web.php']", 'values' => [['web.php']]],
+        ['name' => 'hasConfig', 'args' => '', 'values' => []],
     ])->and($editor->code())->toContain("            ->hasRoutes(['web.php'])\n            ->hasConfig();");
 });
 
@@ -112,4 +112,65 @@ it('adds items to an array argument, single-line and multi-line', function () {
     $multiline->addItemToThisCallArray('boot', 'commands', 'B::class');
 
     expect($multiline->code())->toContain("\$this->commands([\n            A::class,\n            B::class,\n        ]);");
+});
+
+describe('registrations()', function () {
+    $provider = fn (string $body) => new PhpFileEditor("<?php\n\nnamespace Acme\\Blog;\n\nclass BlogServiceProvider extends ServiceProvider\n{\n    public function boot(): void\n    {\n$body\n    }\n}\n");
+
+    it('reads a path however it is written', function (string $statement, string $call, ?string $path) use ($provider) {
+        $registrations = $provider($statement)->registrations('src');
+
+        expect($registrations)->toHaveCount(1)
+            ->and($registrations[0]['call'])->toBe($call)
+            ->and($registrations[0]['path'])->toBe($path);
+    })->with([
+        'Anvil' => ["\$this->loadRoutesFrom(__DIR__.'/../routes/web.php');", 'loadRoutesFrom', 'routes/web.php'],
+        'spaces around the dot' => ["\$this->loadRoutesFrom(__DIR__ . '/../routes/web.php');", 'loadRoutesFrom', 'routes/web.php'],
+        'dirname(__DIR__)' => ["\$this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations');", 'loadMigrationsFrom', 'database/migrations'],
+        'dirname(__DIR__, 1)' => ["\$this->loadViewsFrom(dirname(__DIR__, 1).'/resources/views', 'blog');", 'loadViewsFrom', 'resources/views'],
+        'dirname(__FILE__)' => ["\$this->mergeConfigFrom(dirname(__FILE__).'/../config/blog.php', 'blog');", 'mergeConfigFrom', 'config/blog.php'],
+        'realpath()' => ["\$this->loadTranslationsFrom(realpath(__DIR__.'/../lang'), 'blog');", 'loadTranslationsFrom', 'lang'],
+        'require' => ["require __DIR__.'/../routes/channels.php';", 'require', 'routes/channels.php'],
+        'require_once in a closure' => ["Route::group([], function () {\n    require_once __DIR__.'/../routes/web.php';\n});", 'require', 'routes/web.php'],
+        'a helper method' => ["\$this->loadRoutesFrom(\$this->basePath('routes/web.php'));", 'loadRoutesFrom', null],
+        'a variable' => ['$this->loadRoutesFrom($routes);', 'loadRoutesFrom', null],
+        'outside the package' => ["\$this->loadRoutesFrom(__DIR__.'/../../routes/web.php');", 'loadRoutesFrom', null],
+    ]);
+
+    it('resolves __DIR__ from the directory of the file', function () use ($provider) {
+        $editor = $provider("\$this->loadRoutesFrom(__DIR__.'/../../routes/web.php');");
+
+        expect($editor->registrations('src/Providers')[0]['path'])->toBe('routes/web.php')
+            ->and($provider("\$this->loadRoutesFrom(__DIR__.'/routes/web.php');")->registrations()[0]['path'])->toBe('routes/web.php');
+    });
+
+    it('lists every source of publishes() and every directory of loadMigrationsFrom()', function () use ($provider) {
+        $editor = $provider(<<<'PHP'
+        $this->publishes([
+            __DIR__.'/../config/blog.php' => config_path('blog.php'),
+            __DIR__.'/../resources/views' => resource_path('views/vendor/blog'),
+        ], 'blog');
+        $this->loadMigrationsFrom([__DIR__.'/../database/migrations', __DIR__.'/../database/legacy']);
+PHP);
+
+        expect(array_map(fn (array $r) => $r['call'].' '.$r['path'], $editor->registrations('src')))->toBe([
+            'publishes config/blog.php',
+            'publishes resources/views',
+            'loadMigrationsFrom database/migrations',
+            'loadMigrationsFrom database/legacy',
+        ]);
+    });
+
+    it('keeps the string literals of a path it cannot resolve', function () use ($provider) {
+        $registration = $provider("\$this->loadRoutesFrom(\$this->basePath('routes/web.php'));")->registrations('src')[0];
+
+        expect($registration['literals'])->toBe(['routes/web.php'])
+            ->and($registration['source'])->toBe("\$this->basePath('routes/web.php')");
+    });
+
+    it('finds calls in every method of the class', function () {
+        $editor = new PhpFileEditor("<?php\n\nclass P\n{\n    public function boot(): void\n    {\n        \$this->bootRoutes();\n    }\n\n    private function bootRoutes(): void\n    {\n        \$this->loadRoutesFrom(__DIR__.'/../routes/web.php');\n    }\n}\n");
+
+        expect(array_column($editor->registrations('src'), 'path'))->toBe(['routes/web.php']);
+    });
 });

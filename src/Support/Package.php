@@ -244,6 +244,36 @@ final class Package
     }
 
     /**
+     * The Laravel versions composer.json requires, from illuminate/support (or another
+     * illuminate/* package, or laravel/framework): "^12.0|^13.0" -> ["12", "13"]. Null when it
+     * requires none of them.
+     *
+     * @return list<string>|null
+     */
+    public function laravelVersions(): ?array
+    {
+        $require = (array) $this->composer()->get('require', []);
+        $packages = array_values(array_filter(
+            array_keys($require),
+            fn (string $package) => $package === 'laravel/framework' || str_starts_with($package, 'illuminate/')
+        ));
+        usort($packages, fn (string $a, string $b) => [$a !== 'illuminate/support', $a] <=> [$b !== 'illuminate/support', $b]);
+
+        foreach ($packages as $package) {
+            if (! is_string($require[$package]) || ! preg_match_all('/(?<![\d.])(\d+)(?:\.[\d*x]+)*/', $require[$package], $majors)) {
+                continue;
+            }
+
+            $versions = array_values(array_unique($majors[1]));
+            sort($versions, SORT_NUMERIC);
+
+            return $versions;
+        }
+
+        return null;
+    }
+
+    /**
      * @return list<string>
      */
     public function providers(): array

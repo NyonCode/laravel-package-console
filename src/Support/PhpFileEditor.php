@@ -29,6 +29,20 @@ final class PhpFileEditor
 {
     private const INDENT = '    ';
 
+    /**
+     * The ServiceProvider calls that take the path of a package resource.
+     */
+    private const REGISTRATION_CALLS = [
+        'mergeConfigFrom',
+        'loadRoutesFrom',
+        'loadViewsFrom',
+        'loadTranslationsFrom',
+        'loadJsonTranslationsFrom',
+        'loadMigrationsFrom',
+        'publishes',
+        'publishesMigrations',
+    ];
+
     private static ?Parser $parser = null;
 
     private NodeFinder $finder;
@@ -217,16 +231,58 @@ final class PhpFileEditor
         $stmts = $this->parse();
         $extends = $this->findClass($stmts)->extends;
 
-        if ($extends === null) {
-            return null;
+        return $extends !== null ? $this->resolveName($extends, $stmts) : null;
+    }
+
+    /**
+     * The fully qualified name of the class the file declares.
+     */
+    public function className(): ?string
+    {
+        $stmts = $this->parse();
+        $name = $this->findClass($stmts)->name?->toString();
+        $namespace = $this->finder->findFirstInstanceOf($stmts, Namespace_::class)?->name?->toString();
+
+        return $name !== null ? ($namespace !== null ? $namespace.'\\' : '').$name : null;
+    }
+
+    public function isAbstract(): bool
+    {
+        return $this->findClass($this->parse())->isAbstract();
+    }
+
+    /**
+     * Every class the file names as `Foo::class`, fully qualified.
+     *
+     * @return list<string>
+     */
+    public function classReferences(): array
+    {
+        $stmts = $this->parse();
+        $classes = [];
+
+        foreach ($this->finder->findInstanceOf($stmts, Node\Expr\ClassConstFetch::class) as $fetch) {
+            if ($fetch->class instanceof Node\Name
+                && ! $fetch->class->isSpecialClassName()
+                && $fetch->name instanceof Node\Identifier
+                && $fetch->name->toLowerString() === 'class') {
+                $classes[] = $this->resolveName($fetch->class, $stmts);
+            }
         }
 
-        if ($extends->isFullyQualified()) {
-            return $extends->toString();
+        return array_values(array_unique($classes));
+    }
+
+    /**
+     * @param  Node[]  $stmts
+     */
+    private function resolveName(Node\Name $name, array $stmts): string
+    {
+        if ($name->isFullyQualified()) {
+            return $name->toString();
         }
 
-        $first = $extends->getFirst();
-        $namespace = $this->finder->findFirstInstanceOf($stmts, Namespace_::class);
+        $first = $name->getFirst();
 
         foreach ($this->finder->findInstanceOf($stmts, Use_::class) as $use) {
             if ($use->type !== Use_::TYPE_NORMAL) {
@@ -235,16 +291,16 @@ final class PhpFileEditor
 
             foreach ($use->uses as $item) {
                 if (strcasecmp($item->getAlias()->toString(), $first) === 0) {
-                    $rest = $extends->slice(1);
+                    $rest = $name->slice(1);
 
                     return $item->name->toString().($rest !== null ? '\\'.$rest->toString() : '');
                 }
             }
         }
 
-        $prefix = $namespace?->name?->toString();
+        $prefix = $this->finder->findFirstInstanceOf($stmts, Namespace_::class)?->name?->toString();
 
-        return ($prefix !== null ? $prefix.'\\' : '').$extends->toString();
+        return ($prefix !== null ? $prefix.'\\' : '').$name->toString();
     }
 
     /**
@@ -297,14 +353,44 @@ final class PhpFileEditor
      * Calls made on the Packager in configure(), in order, across every statement
      * that starts with the Packager variable.
      *
-     * @return list<array{name: string, args: string}>
+     * `values` holds, per argument, the strings it names (`'web.php'`, `['web.php', 'api.php']`),
+     * or null when the argument is anything else.
+     *
+     * @return list<array{name: string, args: string, values: list<list<string>|null>}>
      */
     public function packagerCalls(): array
     {
         return array_map(fn (MethodCall $call) => [
             'name' => $call->name instanceof Node\Identifier ? $call->name->toString() : '',
             'args' => $this->argsSource($call),
+            'values' => array_map(fn (Node\Arg $arg) => self::stringValues($arg->value), $call->getArgs()),
         ], $this->allPackagerCalls($this->parse()));
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private static function stringValues(Node\Expr $expr): ?array
+    {
+        if ($expr instanceof Node\Scalar\String_) {
+            return [$expr->value];
+        }
+
+        if (! $expr instanceof Array_) {
+            return null;
+        }
+
+        $values = [];
+
+        foreach (array_filter($expr->items) as $item) {
+            if (! $item->value instanceof Node\Scalar\String_) {
+                return null;
+            }
+
+            $values[] = $item->value->value;
+        }
+
+        return $values;
     }
 
     /**
@@ -381,6 +467,162 @@ final class PhpFileEditor
         $this->addArrayItem($found->getArgs()[0]->value, $item);
 
         return true;
+    }
+
+    /**
+     * The resources the class registers through Laravel's own calls, wherever in the class they
+     * are and however the author wrote the path:
+     *
+     *     $this->loadRoutesFrom(__DIR__ . '/../routes/web.php');
+     *     $this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations');
+     *     $this->publishes([__DIR__.'/../config/blog.php' => config_path('blog.php')], 'blog-config');
+     *     require __DIR__.'/../routes/channels.php';
+     *
+     * `path` is relative to the package root, or null when it cannot be worked out from the code
+     * (a variable, a helper method); `literals` then holds the strings the expression is made of.
+     * `name` is the second argument when it is a string: the config key of mergeConfigFrom(), the
+     * namespace of loadViewsFrom() and loadTranslationsFrom().
+     *
+     * @param  string  $directory  The file's directory, relative to the package root.
+     * @return list<array{call: string, path: string|null, literals: list<string>, source: string, name: string|null}>
+     */
+    public function registrations(string $directory = ''): array
+    {
+        $found = [];
+
+        $nodes = $this->finder->find($this->findClass($this->parse())->stmts, fn (Node $node) => $node instanceof Node\Expr\Include_
+            || ($node instanceof MethodCall
+                && $node->var instanceof Variable && $node->var->name === 'this'
+                && $node->name instanceof Node\Identifier
+                && in_array($node->name->toString(), self::REGISTRATION_CALLS, true)));
+
+        foreach ($nodes as $node) {
+            if ($node instanceof Node\Expr\Include_) {
+                $found[] = $this->registration('require', $node->expr, $directory);
+
+                continue;
+            }
+
+            /** @var MethodCall $node */
+            $call = $node->name->toString();
+            $argument = $node->getArgs()[0]->value ?? null;
+            $second = $node->getArgs()[1]->value ?? null;
+            $name = $second instanceof Node\Scalar\String_ ? $second->value : null;
+
+            if ($argument === null) {
+                continue;
+            }
+
+            if (! $argument instanceof Array_) {
+                $found[] = $this->registration($call, $argument, $directory, $name);
+
+                continue;
+            }
+
+            // publishes([source => target]) names its sources as keys, loadMigrationsFrom([...]) as values.
+            foreach (array_filter($argument->items) as $item) {
+                $found[] = $this->registration($call, $item->key ?? $item->value, $directory, $name);
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * @return array{call: string, path: string|null, literals: list<string>, source: string, name: string|null}
+     */
+    private function registration(string $call, Node\Expr $expr, string $directory, ?string $name = null): array
+    {
+        $path = $this->evaluatePath($expr, '/'.trim(str_replace('\\', '/', $directory), '/'));
+
+        return [
+            'call' => $call,
+            'path' => $path !== null ? self::normalizePath($path) : null,
+            'literals' => array_map(
+                fn (Node\Scalar\String_ $string) => $string->value,
+                $this->finder->findInstanceOf([$expr], Node\Scalar\String_::class)
+            ),
+            'source' => substr($this->code, $expr->getStartFilePos(), $expr->getEndFilePos() - $expr->getStartFilePos() + 1),
+            'name' => $name,
+        ];
+    }
+
+    /**
+     * The path an expression stands for, with the package root as "/": string literals,
+     * __DIR__, __FILE__, concatenation, dirname() and realpath().
+     */
+    private function evaluatePath(Node\Expr $expr, string $directory): ?string
+    {
+        if ($expr instanceof Node\Scalar\String_) {
+            return $expr->value;
+        }
+
+        if ($expr instanceof Node\Scalar\MagicConst\Dir) {
+            return $directory;
+        }
+
+        if ($expr instanceof Node\Scalar\MagicConst\File) {
+            return rtrim($directory, '/').'/__FILE__';
+        }
+
+        if ($expr instanceof Node\Expr\BinaryOp\Concat) {
+            $left = $this->evaluatePath($expr->left, $directory);
+            $right = $this->evaluatePath($expr->right, $directory);
+
+            return $left !== null && $right !== null ? $left.$right : null;
+        }
+
+        if ($expr instanceof Node\Expr\FuncCall && $expr->name instanceof Node\Name) {
+            $args = $expr->getArgs();
+            $inner = isset($args[0]) ? $this->evaluatePath($args[0]->value, $directory) : null;
+            $function = strtolower($expr->name->toString());
+
+            if ($inner === null) {
+                return null;
+            }
+
+            if ($function === 'realpath') {
+                return $inner;
+            }
+
+            if ($function === 'dirname') {
+                $levels = $args[1]->value ?? null;
+
+                if ($levels !== null && ! $levels instanceof Node\Scalar\Int_) {
+                    return null;
+                }
+
+                $normalized = self::normalizePath($inner);
+
+                return $normalized !== null
+                    ? '/'.ltrim(str_replace('\\', '/', dirname('/'.$normalized, max(1, $levels->value ?? 1))), '/')
+                    : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * "/src/../config/blog.php" -> "config/blog.php"; null when the path leaves the package.
+     */
+    private static function normalizePath(string $path): ?string
+    {
+        $segments = [];
+
+        foreach (explode('/', str_replace('\\', '/', $path)) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+
+            if ($segment !== '..') {
+                $segments[] = $segment;
+            } elseif (array_pop($segments) === null) {
+                return null;
+            }
+        }
+
+        return implode('/', $segments);
     }
 
     private function addArrayItem(Array_ $array, string $item): void

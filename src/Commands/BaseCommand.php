@@ -8,10 +8,12 @@ use NyonCode\LaravelPackageConsole\Concerns\HasOptions;
 use NyonCode\LaravelPackageConsole\Concerns\InputValidator;
 use NyonCode\LaravelPackageConsole\Concerns\NameNormalizer;
 use NyonCode\LaravelPackageConsole\Support\Package;
+use NyonCode\LaravelPackageConsole\Support\Prompts;
 use RuntimeException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Exception\ExceptionInterface;
 use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -24,6 +26,8 @@ abstract class BaseCommand extends Command
     use HasOptions;
     use InputValidator;
     use NameNormalizer;
+
+    private ?Prompts $prompts = null;
 
     /**
      * Execute the console command. Return an exit code (int), or false for failure.
@@ -54,7 +58,27 @@ abstract class BaseCommand extends Command
      */
     public function run(InputInterface $input, OutputInterface $output): int
     {
+        $this->prompts = null;
+
         return parent::run($this->input = $input, $this->output = $output);
+    }
+
+    /**
+     * The questions this run may ask: prompts in a terminal, defaults when not interactive.
+     */
+    protected function prompts(): Prompts
+    {
+        return $this->prompts ??= new Prompts($this->input, $this->output);
+    }
+
+    /**
+     * An interactive question in the user's language.
+     *
+     * @param  array<string, string|int>  $replace
+     */
+    protected function trans(string $line, array $replace = []): string
+    {
+        return anvil_trans($line, $replace);
     }
 
     /**
@@ -74,23 +98,52 @@ abstract class BaseCommand extends Command
     }
 
     /**
-     * Ask for required arguments that were not passed on the command line.
+     * Ask for required arguments that were not passed on the command line. A command that had
+     * to ask may go on to ask about its options in afterPromptingForMissingArguments().
      */
     protected function interact(InputInterface $input, OutputInterface $output): void
     {
-        $io = new SymfonyStyle($input, $output);
+        $prompted = false;
 
         foreach ($this->getDefinition()->getArguments() as $argument) {
             $value = $input->getArgument($argument->getName());
 
-            if ($argument->isRequired() && ($value === null || $value === [] || $value === '')) {
-                $input->setArgument(
-                    $argument->getName(),
-                    $io->ask($argument->getDescription() ?: ucfirst($argument->getName()))
-                );
+            if (! $argument->isRequired() || ! ($value === null || $value === [] || $value === '')) {
+                continue;
             }
+
+            [$label, $placeholder] = $this->promptForArgument($argument);
+            $name = $argument->getName();
+
+            $input->setArgument($name, $this->prompts()->text(
+                $label,
+                placeholder: $placeholder,
+                required: true,
+                validate: fn (string $value) => ($error = $this->validationError($name, $value)) !== null ? $this->trans($error) : null,
+            ));
+            $prompted = true;
+        }
+
+        if ($prompted) {
+            $this->afterPromptingForMissingArguments();
         }
     }
+
+    /**
+     * The question and the placeholder for a missing argument.
+     *
+     * @return array{0: string, 1: string}
+     */
+    protected function promptForArgument(InputArgument $argument): array
+    {
+        return [$this->trans($argument->getDescription() ?: ucfirst($argument->getName())), ''];
+    }
+
+    /**
+     * Ask about options once the missing arguments were asked for (as Artisan does). Only
+     * called in an interactive run, and only when an argument was missing.
+     */
+    protected function afterPromptingForMissingArguments(): void {}
 
     /**
      * Execute the console command.

@@ -2,9 +2,13 @@
 
 namespace NyonCode\LaravelPackageConsole\Commands;
 
+use Closure;
+use Laravel\Prompts\FormBuilder;
 use NyonCode\LaravelPackageConsole\Support\Package;
+use NyonCode\LaravelPackageConsole\Support\PhpFileEditor;
 use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputOption;
 
 use function Symfony\Component\String\u;
@@ -43,25 +47,29 @@ final class PackageInitCommand extends GenerateCommand
 
         $this->title($composer->exists() ? 'Completing composer.json' : 'Creating a new Laravel package');
 
-        $name = $this->answer('name', 'Composer package name (vendor/name)', $composer->get('name') ?: $this->guessName(), function (?string $value) {
-            if (! preg_match('{^[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$}', (string) $value)) {
-                throw new RuntimeException('The package name must be lowercase "vendor/name", e.g. "acme/laravel-blog".');
-            }
-
-            return $value;
-        });
-
-        $description = $this->answer('description', 'Description', $composer->get('description') ?: 'A Laravel package.');
-        $namespace = trim($this->answer('namespace', 'Root namespace', $this->existingNamespace() ?? $this->guessNamespace($name)), '\\');
-        $author = $this->answer('author', 'Author name', $composer->get('authors.0.name') ?: $this->git('user.name') ?: 'Your Name');
-        $email = $this->answer('email', 'Author email', $composer->get('authors.0.email') ?: $this->git('user.email') ?: '');
         // A provider the package already has, but composer.json does not list.
         $discovered = $package->exists() && $package->mainProvider() === null ? $package->discoverProviders() : [];
         $hasProvider = $package->mainProvider() !== null || $discovered !== [];
-        $toolkit = $this->wantsToolkit($hasProvider);
-        $laravel = $this->laravelVersions();
 
-        $this->writeComposer($name, $description, $namespace, $author, $email, $toolkit, $laravel);
+        $before = $this->current();
+        $answers = $this->questions($hasProvider, $before)->submit();
+
+        if ($answers['confirmed'] === false) {
+            $this->message('  '.$this->trans('Nothing was written.'));
+
+            return self::FAILURE;
+        }
+
+        $name = $answers['name'];
+        $description = $answers['description'];
+        $namespace = $answers['namespace'];
+        $author = $answers['author'];
+        $email = $answers['email'];
+        $toolkit = $answers['toolkit'];
+        $laravel = $answers['laravel'];
+
+        $this->keepNamespace($before['namespace']);
+        $this->writeComposer($name, $description, $namespace, $author, $email, $toolkit, $laravel, $before);
         $package->refresh();
 
         $this->newLine();
@@ -84,6 +92,10 @@ final class PackageInitCommand extends GenerateCommand
         }
 
         $this->scaffold($this->replacements($description, $author, $laravel));
+
+        if ($before['laravel'] !== null && $before['laravel'] !== $laravel) {
+            $this->checkWorkflow($laravel);
+        }
 
         $this->newLine();
         $this->right(match ($package->providerMode()) {
@@ -125,22 +137,30 @@ final class PackageInitCommand extends GenerateCommand
     /**
      * @param  list<string>  $laravel
      */
-    private function writeComposer(string $name, string $description, string $namespace, string $author, string $email, bool $toolkit, array $laravel): void
+    /**
+     * Fill in what composer.json lacks, and write what the answers change: the name, the
+     * description, the author and the Laravel versions. An answer that is the current value
+     * (as every answer is with --no-interaction and no option) changes nothing.
+     *
+     * @param  list<string>  $laravel
+     * @param  array{name: ?string, description: ?string, namespace: ?string, author: ?string, email: ?string, laravel: list<string>|null}  $before
+     */
+    private function writeComposer(string $name, string $description, string $namespace, string $author, string $email, bool $toolkit, array $laravel, array $before): void
     {
         $composer = $this->package()->composer();
         $supportsL12 = in_array('12', $laravel, true);
         $short = Package::shortNameFor($name);
 
         $composer->set('name', $name)
-            ->setIfMissing('description', $description)
             ->setIfMissing('type', 'library')
             ->setIfMissing('keywords', array_values(array_unique(['laravel', $short])))
-            ->setIfMissing('license', 'MIT')
-            ->setIfMissing('authors', [array_filter(['name' => $author, 'email' => $email, 'role' => 'Developer'])]);
+            ->setIfMissing('license', 'MIT');
 
-        if ($description !== '' && $this->option('description')) {
+        if ($description !== $before['description']) {
             $composer->set('description', $description);
         }
+
+        $this->writeAuthor($author, $email, $before);
 
         $require = [
             'php' => $supportsL12 ? '^8.2' : '^8.3',
@@ -151,15 +171,21 @@ final class PackageInitCommand extends GenerateCommand
             $require[Package::TOOLKIT] = self::TOOLKIT_VERSION;
         }
 
-        $composer->mergeMissing('require', $require);
-        $composer->mergeMissing('require-dev', [
+        $requireDev = [
             'larastan/larastan' => '^3.0',
             'laravel/pint' => '^1.24',
             'nyoncode/laravel-package-console' => '^'.explode('.', (string) anvil_config('version'))[0].'.0',
             'orchestra/testbench' => implode('|', array_map(fn (string $v) => '^'.self::LARAVEL[$v]['testbench'].'.0', $laravel)),
             'pestphp/pest' => $supportsL12 ? '^3.8|^4.0' : '^4.0',
             'pestphp/pest-plugin-laravel' => $supportsL12 ? '^3.2|^4.0' : '^4.0',
-        ]);
+        ];
+
+        if ($before['laravel'] !== null && $before['laravel'] !== $laravel) {
+            $this->changeLaravel($require, $requireDev);
+        }
+
+        $composer->mergeMissing('require', $require);
+        $composer->mergeMissing('require-dev', $requireDev);
 
         $psr4 = (array) $composer->get('autoload.psr-4', []);
 
@@ -185,6 +211,65 @@ final class PackageInitCommand extends GenerateCommand
         $composer->save();
 
         $this->output()->writeln(sprintf('  <fg=green;options=bold>%s</> composer.json', $existed ? 'UPDATE' : 'CREATE'));
+    }
+
+    /**
+     * Rewrite the constraints that follow from the Laravel versions. PHP is only raised: a
+     * package may well require a newer PHP than Laravel does.
+     *
+     * @param  array<string, string>  $require
+     * @param  array<string, string>  $requireDev
+     */
+    private function changeLaravel(array $require, array $requireDev): void
+    {
+        $composer = $this->package()->composer();
+
+        foreach (array_keys((array) $composer->get('require', [])) as $package) {
+            if ($package === 'laravel/framework' || str_starts_with((string) $package, 'illuminate/')) {
+                $composer->set("require.$package", $require['illuminate/support']);
+            }
+        }
+
+        $php = $composer->get('require.php');
+        $minimum = ltrim($require['php'], '^');
+
+        if (is_string($php) && preg_match('/(\d+\.\d+)/', $php, $current) && version_compare($current[1], $minimum, '<')) {
+            $composer->set('require.php', $require['php']);
+        }
+
+        foreach (['orchestra/testbench', 'pestphp/pest', 'pestphp/pest-plugin-laravel'] as $package) {
+            if ($composer->get("require-dev.$package") !== null) {
+                $composer->set("require-dev.$package", $requireDev[$package]);
+            }
+        }
+    }
+
+    /**
+     * The first author of composer.json is the one the questions are about. Its other keys
+     * (role, homepage) are kept.
+     *
+     * @param  array{author: ?string, email: ?string}  $before
+     */
+    private function writeAuthor(string $author, string $email, array $before): void
+    {
+        $composer = $this->package()->composer();
+        $current = $composer->get('authors.0');
+
+        if (! is_array($current)) {
+            $composer->setIfMissing('authors', [array_filter(['name' => $author, 'email' => $email, 'role' => 'Developer'])]);
+
+            return;
+        }
+
+        if ($author === $before['author'] && $email === (string) $before['email']) {
+            return;
+        }
+
+        $current = ['name' => $author, 'email' => $email] + $current;
+        $current['name'] = $author;
+        $current['email'] = $email;
+
+        $composer->set('authors.0', array_filter($current, fn (mixed $value) => $value !== ''));
     }
 
     /**
@@ -328,27 +413,89 @@ final class PackageInitCommand extends GenerateCommand
     }
 
     /**
-     * Use the --option value, else ask (interactive), else the default.
+     * Everything package:init needs to know. An answer comes from its --option, else from a
+     * question, else (not interactive) from the default. In a terminal Ctrl+U goes back to the
+     * previous question, and nothing is written before the summary is confirmed.
      */
-    private function answer(string $option, string $question, string $default, ?callable $validator = null): string
+    /**
+     * @param  array{name: ?string, description: ?string, namespace: ?string, author: ?string, email: ?string, laravel: list<string>|null}  $before
+     */
+    private function questions(bool $hasProvider, array $before): FormBuilder
+    {
+        // Git fills in an author composer.json does not have, not the email of one it has.
+        $hasAuthor = is_array($this->package()->composer()->get('authors.0'));
+
+        return (new FormBuilder)
+            ->add(fn (array $answers, ?string $previous) => $this->answer(
+                'name',
+                $this->trans('Composer package name'),
+                $previous ?? ($before['name'] ?: $this->guessName()),
+                'vendor/name',
+                fn (string $value) => preg_match('{^[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$}', $value)
+                    ? null
+                    : 'The package name must be lowercase "vendor/name", e.g. "acme/laravel-blog".',
+            ), 'name')
+            ->add(fn (array $answers, ?string $previous) => $this->answer(
+                'description',
+                $this->trans('Description'),
+                $previous ?? $before['description'] ?? 'A Laravel package.',
+            ), 'description')
+            // The namespace of a package that has one is not asked: renaming it would break its classes.
+            ->add(fn (array $answers, ?string $previous) => $before['namespace'] ?? trim($this->answer(
+                'namespace',
+                $this->trans('Root namespace'),
+                $previous ?? $this->existingNamespace() ?? $this->guessNamespace($answers['name']),
+                validate: fn (string $value) => preg_match('/^\\\\?[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*\\\\?$/', $value)
+                    ? null
+                    : 'The namespace must be a valid PHP namespace, e.g. "Acme\Blog".',
+            ), '\\'), 'namespace')
+            ->add(fn (array $answers, ?string $previous) => $this->answer(
+                'author',
+                $this->trans('Author name'),
+                $previous ?? $before['author'] ?? ($hasAuthor ? '' : ($this->git('user.name') ?: 'Your Name')),
+            ), 'author')
+            ->add(fn (array $answers, ?string $previous) => $this->answer(
+                'email',
+                $this->trans('Author email'),
+                $previous ?? $before['email'] ?? ($hasAuthor ? '' : ($this->git('user.email') ?: '')),
+            ), 'email')
+            ->add(fn () => $this->wantsToolkit($hasProvider), 'toolkit')
+            ->add(fn () => $this->laravelVersions($before['laravel']), 'laravel')
+            ->add(fn (array $answers) => $this->confirmed($answers, $hasProvider, $before), 'confirmed');
+    }
+
+    /**
+     * Use the --option value, else ask (interactive), else the default.
+     *
+     * @param  (Closure(string): ?string)|null  $validate  Returns the error, in English.
+     */
+    private function answer(string $option, string $question, string $default, string $placeholder = '', ?Closure $validate = null): string
     {
         $value = $this->option($option);
 
         if (is_string($value) && $value !== '') {
-            return $validator !== null ? $validator($value) : $value;
+            if ($validate !== null && ($error = $validate($value)) !== null) {
+                throw new RuntimeException($error);
+            }
+
+            return $value;
         }
 
-        if (! $this->input()->isInteractive()) {
-            return $validator !== null ? $validator($default) : $default;
-        }
-
-        return (string) $this->ask($question, $default, $validator);
+        return $this->prompts()->text(
+            $question,
+            $default,
+            $placeholder,
+            validate: $validate !== null
+                ? fn (string $value) => ($error = $validate($value)) !== null && $this->prompts()->interactive() ? $this->trans($error) : $error
+                : null,
+        );
     }
 
     /**
-     * A new package uses the toolkit unless --no-toolkit is given (or the prompt is declined).
-     * A package that already has a provider keeps its dependencies: the provider's own style
-     * decides how generators register, so the toolkit is only added with an explicit --toolkit.
+     * A new package uses the toolkit unless --no-toolkit is given (or the plain provider is
+     * chosen). A package that already has a provider keeps its dependencies: the provider's
+     * own style decides how generators register, so the toolkit is only added with an
+     * explicit --toolkit.
      */
     private function wantsToolkit(bool $hasProvider): bool
     {
@@ -364,18 +511,38 @@ final class PackageInitCommand extends GenerateCommand
             return $this->package()->usesToolkit();
         }
 
-        return $this->input()->isInteractive()
-            ? $this->confirm('Use nyoncode/laravel-package-toolkit for the service provider?', true)
-            : true;
+        return $this->prompts()->select($this->trans('Which service provider should the package have?'), [
+            'toolkit' => $this->trans('nyoncode/laravel-package-toolkit, with fluent ->hasX() calls'),
+            'plain' => $this->trans('A plain Laravel ServiceProvider'),
+        ]) === 'toolkit';
     }
 
     /**
      * @return list<string>
      */
-    private function laravelVersions(): array
+    /**
+     * The versions of --laravel, else the ones the package already requires, else 12 and 13;
+     * asked for in a terminal unless --laravel is given.
+     *
+     * @param  list<string>|null  $current
+     * @return list<string>
+     */
+    private function laravelVersions(?array $current): array
     {
-        $versions = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) $this->option('laravel'))))));
-        $unsupported = array_diff($versions, array_keys(self::LARAVEL));
+        $versions = $this->input()->hasParameterOption('--laravel') || $current === null
+            ? array_values(array_unique(array_filter(array_map('trim', explode(',', (string) $this->option('laravel'))))))
+            : $current;
+
+        if (! $this->input()->hasParameterOption('--laravel')) {
+            $versions = array_map('strval', $this->prompts()->multiselect(
+                $this->trans('Which Laravel versions should the package support?'),
+                array_map(fn (string $version) => 'Laravel '.$version, array_combine(array_keys(self::LARAVEL), array_keys(self::LARAVEL))),
+                array_map('intval', $versions),
+                required: true,
+            ));
+        }
+
+        $unsupported = array_diff($versions, array_map('strval', array_keys(self::LARAVEL)));
 
         if ($versions === [] || $unsupported !== []) {
             throw new RuntimeException('Supported Laravel versions: '.implode(', ', array_keys(self::LARAVEL)).'.');
@@ -384,6 +551,137 @@ final class PackageInitCommand extends GenerateCommand
         sort($versions);
 
         return $versions;
+    }
+
+    /**
+     * Show what is about to be written, with what an existing package changes from → to, and
+     * ask whether to go on. Not asked when the run is not interactive.
+     *
+     * @param  array<string, mixed>  $answers
+     * @param  array{name: ?string, description: ?string, namespace: ?string, author: ?string, email: ?string, laravel: list<string>|null}  $before
+     */
+    private function confirmed(array $answers, bool $hasProvider, array $before): bool
+    {
+        if (! $this->prompts()->interactive()) {
+            return true;
+        }
+
+        $author = fn (?string $name, ?string $email) => trim($name.($email !== null && $email !== '' ? " <$email>" : ''));
+        $rows = [
+            $this->trans('Package') => [$before['name'], $answers['name']],
+            $this->trans('Description') => [$before['description'], $answers['description']],
+            $this->trans('Namespace') => [null, $answers['namespace']],
+            $this->trans('Author') => [
+                $before['author'] !== null ? $author($before['author'], $before['email']) : null,
+                $author($answers['author'], $answers['email']),
+            ],
+            $this->trans('Service provider') => [null, $this->providerLabel($hasProvider, $answers['toolkit'])],
+            'Laravel' => [
+                $before['laravel'] !== null ? implode(', ', $before['laravel']) : null,
+                implode(', ', $answers['laravel']),
+            ],
+        ];
+        $width = max(array_map('mb_strlen', array_keys($rows)));
+
+        $this->newLine();
+
+        foreach ($rows as $label => [$old, $new]) {
+            $value = $old !== null && $old !== $new
+                ? '<fg=gray>'.OutputFormatter::escape($old).'</> → <options=bold>'.OutputFormatter::escape($new).'</>'
+                : OutputFormatter::escape($new);
+
+            $this->message(sprintf('  <fg=gray>%s</>%s  %s', $label, str_repeat(' ', $width - mb_strlen($label)), $value));
+        }
+
+        $this->newLine();
+
+        return $this->prompts()->confirm($this->trans(
+            $this->package()->composer()->exists() ? 'Complete the package with these settings?' : 'Create the package with these settings?'
+        ));
+    }
+
+    private function providerLabel(bool $hasProvider, bool $toolkit): string
+    {
+        $package = $this->package();
+        $mode = $package->providerMode();
+
+        if ($mode === null && $hasProvider) {
+            $path = $package->pathForClass($package->discoverProviders()[0] ?? '');
+            $mode = $path !== null && is_file($path) ? PhpFileEditor::fromFile($path)->mode() : null;
+        }
+
+        return match (true) {
+            $mode === 'toolkit', ! $hasProvider && $toolkit => 'nyoncode/laravel-package-toolkit',
+            $mode === 'spatie' => 'spatie/laravel-package-tools',
+            $mode === 'plain', ! $hasProvider => $this->trans('plain Laravel ServiceProvider'),
+            default => $this->trans('the one the package has'),
+        };
+    }
+
+    /**
+     * What composer.json says now, to prefill the questions and to tell what an answer changes.
+     *
+     * @return array{name: ?string, description: ?string, namespace: ?string, author: ?string, email: ?string, laravel: list<string>|null}
+     */
+    private function current(): array
+    {
+        $composer = $this->package()->composer();
+        $string = fn (string $key) => is_string($composer->get($key)) ? $composer->get($key) : null;
+        $laravel = array_values(array_intersect($this->package()->laravelVersions() ?? [], array_map('strval', array_keys(self::LARAVEL))));
+
+        return [
+            'name' => $string('name'),
+            'description' => $string('description'),
+            'namespace' => $composer->exists() ? $this->existingNamespace() : null,
+            'author' => $string('authors.0.name'),
+            'email' => $string('authors.0.email'),
+            'laravel' => $laravel !== [] ? $laravel : null,
+        ];
+    }
+
+    /**
+     * --namespace cannot rename the namespace of a package that has one.
+     */
+    private function keepNamespace(?string $namespace): void
+    {
+        $option = trim((string) $this->option('namespace'), '\\');
+
+        if ($namespace !== null && $option !== '' && $option !== $namespace) {
+            $this->output()->writeln(sprintf(
+                '  <fg=yellow;options=bold>WARN</> Kept the namespace %s from composer.json: package:init does not rename the namespace of existing classes.',
+                $namespace
+            ));
+        }
+    }
+
+    /**
+     * After the Laravel versions changed, the CI matrix of a workflow the package already has
+     * may still test the old ones. It is not rewritten, because it may have been edited.
+     *
+     * @param  list<string>  $laravel
+     */
+    private function checkWorkflow(array $laravel): void
+    {
+        $path = $this->package()->path('.github/workflows/tests.yml');
+
+        if (in_array('.github/workflows/tests.yml', $this->written, true) || ! is_file($path)) {
+            return;
+        }
+
+        $workflow = (string) file_get_contents($path);
+        $stale = false;
+
+        foreach (array_keys(self::LARAVEL) as $version) {
+            if (str_contains($workflow, "'$version.*'") !== in_array((string) $version, $laravel, true)) {
+                $stale = true;
+            }
+        }
+
+        if ($stale) {
+            $this->output()->writeln(
+                '  <fg=yellow;options=bold>WARN</> The CI matrix in .github/workflows/tests.yml does not match the new Laravel versions. Update it by hand, or delete it and run package:init again.'
+            );
+        }
     }
 
     private function existingNamespace(): ?string
@@ -403,13 +701,20 @@ final class PackageInitCommand extends GenerateCommand
     }
 
     /**
-     * "acme/laravel-blog-posts" -> "Acme\BlogPosts".
+     * "acme/laravel-blog-posts" -> "Acme\BlogPosts". A part that would start with a digit,
+     * which no namespace can, gets a "Package" prefix.
      */
     private function guessNamespace(string $name): string
     {
-        $vendor = explode('/', $name)[0];
+        $segments = array_map(
+            fn (string $part) => preg_replace('/[^A-Za-z0-9_]/', '', u($part)->camel()->title()->toString()),
+            [explode('/', $name)[0], Package::shortNameFor($name)]
+        );
 
-        return u($vendor)->camel()->title()->toString().'\\'.u(Package::shortNameFor($name))->camel()->title()->toString();
+        return implode('\\', array_map(
+            fn (string $segment) => preg_match('/^[A-Za-z_]/', $segment) ? $segment : 'Package'.$segment,
+            $segments
+        ));
     }
 
     private function git(string $key): ?string

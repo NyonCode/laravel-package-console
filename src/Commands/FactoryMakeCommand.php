@@ -12,6 +12,8 @@ final class FactoryMakeCommand extends GenerateCommand
 
     protected string $type = 'Factory';
 
+    protected string $example = 'PostFactory';
+
     protected string $stub = 'factory.stub';
 
     /**
@@ -50,6 +52,14 @@ final class FactoryMakeCommand extends GenerateCommand
         return $this->qualifyModel(
             $this->option('model') ?: (string) preg_replace('/Factory$/', '', $this->classBasename($factory))
         );
+    }
+
+    protected function getValidationRules(): array
+    {
+        return [
+            ...parent::getValidationRules(),
+            '--model' => [$this->classOptionRule('The model must be a class name that PHP does not reserve, e.g. "Post", "Admin/Post" or "\\App\\Models\\User".')],
+        ];
     }
 
     protected function getOptions(): array

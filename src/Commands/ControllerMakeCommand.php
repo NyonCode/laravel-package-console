@@ -12,6 +12,8 @@ final class ControllerMakeCommand extends GenerateCommand
 
     protected string $type = 'Controller';
 
+    protected string $example = 'PostController';
+
     protected string $namespace = 'Http\\Controllers';
 
     public function getStub(): string
@@ -39,6 +41,49 @@ final class ControllerMakeCommand extends GenerateCommand
     {
         // An invokable controller does not reference the model.
         return $this->option('model') && ! $this->option('invokable') ? [$this->qualifyModel($this->option('model'))] : [];
+    }
+
+    protected function afterPromptingForMissingArguments(): void
+    {
+        if ($this->option('resource') || $this->option('api') || $this->option('invokable') || $this->option('model')) {
+            return;
+        }
+
+        $type = $this->prompts()->select($this->trans('Which type of controller would you like?'), [
+            'empty' => $this->trans('Empty'),
+            'resource' => $this->trans('Resource'),
+            'api' => $this->trans('API resource'),
+            'invokable' => $this->trans('Invokable'),
+        ]);
+
+        if ($type === 'empty') {
+            return;
+        }
+
+        $this->input()->setOption((string) $type, true);
+
+        if ($type === 'invokable') {
+            return;
+        }
+
+        $model = $this->prompts()->suggest(
+            $this->trans('What model should this controller be for?'),
+            $this->classesIn('Models'),
+            hint: $this->trans('Optional.'),
+            validate: fn (string $value) => ($error = $this->validationError('--model', $value)) !== null ? $this->trans($error) : null,
+        );
+
+        if ($model !== '') {
+            $this->input()->setOption('model', $model);
+        }
+    }
+
+    protected function getValidationRules(): array
+    {
+        return [
+            ...parent::getValidationRules(),
+            '--model' => [$this->classOptionRule('The model must be a class name that PHP does not reserve, e.g. "Post", "Admin/Post" or "\\App\\Models\\User".')],
+        ];
     }
 
     protected function getOptions(): array

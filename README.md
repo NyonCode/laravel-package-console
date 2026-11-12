@@ -36,7 +36,11 @@ php anvil make:model Post -a
       `->hasX()` calls in `configurePackage()`;
     - with a plain Laravel `ServiceProvider`, as the standard calls in `register()`/`boot()`.
 - **Works with existing packages.** `package:init` completes `composer.json` and keeps your
-  provider, test setup and CI.
+  provider, test setup and CI. `package:doctor` then finds the files your provider does not
+  register, and registrations of files that are gone, and `--fix` registers what is missing.
+- **Asks instead of failing.** In a terminal, a generator without a name asks for it and for
+  its options, with Laravel Prompts, in English or Czech. With `--no-interaction` nothing is
+  ever asked.
 - **Registration is idempotent.** It only adds what is missing and never reformats your code.
 - **Every generated file passes Pint and Larastan.** Integration tests install a generated
   package on Laravel 12 and 13 and check every registration in a running application.

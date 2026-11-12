@@ -10,6 +10,8 @@ final class ExceptionMakeCommand extends GenerateCommand
 {
     protected string $type = 'Exception';
 
+    protected string $example = 'InvalidPostException';
+
     protected string $namespace = 'Exceptions';
 
     public function getStub(): string

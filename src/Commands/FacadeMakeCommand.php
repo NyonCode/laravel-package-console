@@ -11,6 +11,8 @@ final class FacadeMakeCommand extends GenerateCommand
 {
     protected string $type = 'Facade';
 
+    protected string $example = 'Blog';
+
     protected string $namespace = 'Facades';
 
     protected string $stub = 'facade.stub';

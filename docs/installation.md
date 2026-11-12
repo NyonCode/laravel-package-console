@@ -9,7 +9,7 @@ description: Install Anvil as a dev dependency of your package or globally, and 
 
 | | |
 |---|---|
-| PHP | 8.2 or newer, with the `readline` extension |
+| PHP | 8.2 or newer, with the `readline` and `mbstring` extensions |
 | Composer | 2.x |
 | Packages you generate | Laravel 12 and/or 13 |
 
@@ -92,6 +92,7 @@ Anvil is not installed. Run "composer require --dev nyoncode/laravel-package-con
 php anvil list                 # every command
 php anvil help make:model      # arguments and options of one command
 php anvil package:info         # what Anvil detected about your package
+php anvil package:doctor       # what the service provider registers, and what it misses
 ```
 
 Anvil also supports Symfony Console's shell completion:

@@ -11,6 +11,8 @@ final class ModelMakeCommand extends GenerateCommand
 {
     protected string $type = 'Model';
 
+    protected string $example = 'Post';
+
     protected string $namespace = 'Models';
 
     /**
@@ -67,6 +69,32 @@ final class ModelMakeCommand extends GenerateCommand
 
         if ($this->wants('policy')) {
             $this->call('make:policy', ['name' => $model.'Policy', '--model' => $class, ...$force]);
+        }
+    }
+
+    /**
+     * Like Artisan: a model created by answering the name question is offered its companions.
+     */
+    protected function afterPromptingForMissingArguments(): void
+    {
+        foreach (['all', 'migration', 'factory', 'seed', 'controller', 'resource', 'api', 'policy'] as $option) {
+            if ($this->option($option)) {
+                return;
+            }
+        }
+
+        $chosen = $this->prompts()->multiselect($this->trans('Would you like any of the following?'), [
+            'migration' => $this->trans('Migration'),
+            'factory' => $this->trans('Factory'),
+            'seed' => $this->trans('Seeder'),
+            'policy' => $this->trans('Policy'),
+            'controller' => $this->trans('Controller'),
+            'resource' => $this->trans('Resource controller'),
+            'api' => $this->trans('API resource controller'),
+        ]);
+
+        foreach ($chosen as $option) {
+            $this->input()->setOption((string) $option, true);
         }
     }
 

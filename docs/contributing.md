@@ -56,6 +56,7 @@ access. Every test works in a fresh temporary package created by the helpers in
 | `tests/Feature/CommandOptionsTest.php` | every option of every generator |
 | `tests/Feature/ProviderRegistrationTest.php` | registration edge cases: existing calls, multi-line arrays, split `$packager` statements, missing methods, manual warnings |
 | `tests/Feature/ExistingPackageTest.php` | existing packages: spatie/laravel-package-tools providers, providers with a parent class, providers composer.json does not list, short names from the provider, test setup and CI that must not be overridden |
+| `tests/Feature/DoctorTest.php` | `package:doctor`: a generated package has nothing to report, every kind of unregistered file, registrations of missing files and classes, `composer.json`, `--fix`, `--strict`, `--json` |
 | `tests/Feature/PackageInitTest.php` | `composer.json` per Laravel version, the CI matrix, existing packages, prompts |
 | `tests/Unit/*` | `PhpFileEditor`, `Package`, `ComposerJson`, and the documentation |
 
@@ -110,13 +111,41 @@ It needs network access and takes about a minute and a half with a warm Composer
    - `getReplacements()` for extra placeholders;
    - `getImports()` for classes to import;
    - `getValidationRules()` for arguments, and for options keyed `--option`;
-   - `afterGenerate()` for registration: call `$this->report($this->registrar()->…)`.
+   - `afterGenerate()` for registration: call `$this->report($this->registrar()->…)`;
+   - `$example` for the placeholder of the name question, and
+     `afterPromptingForMissingArguments()` to ask about options with `$this->prompts()`. Wrap
+     every question in `$this->trans()` and add it to each file in `lang/`.
 4. **Add it to `fullPackageCommands()`** in `tests/Pest.php`. The full-package tests then check
    the generated file in both modes, and the integration tests check it in Laravel.
 5. **Document it** in the right page of `docs/`, then run `composer docs:commands`.
 
 Registration must stay idempotent: running a generator twice must leave the provider unchanged.
 `FullPackageTest` checks that for every generator.
+
+## Questions and languages
+
+Commands ask through `$this->prompts()` (`Support/Prompts`), never through Laravel Prompts or
+Symfony's question helper directly. It answers with the default when the run is not
+interactive, draws a prompt in a terminal and falls back to a plain question elsewhere, so a
+command is written once for all three.
+
+- Ask only for what was not given as an argument or option, and never from a command that
+  another command calls.
+- Pass every label, hint and choice through `$this->trans('The English text')`. The English
+  text is the key.
+- Add the line to every `lang/*.php`. A test in `tests/Feature/InteractiveTest.php` fails when
+  a language lacks a question.
+- Do not translate what a command prints: output stays in English.
+
+To add a language, copy `lang/cs.php` to `lang/{language}.php` and translate the values. The
+language is picked up from the file name: `ANVIL_LANG=de` uses `lang/de.php`.
+
+Test a question with `anvilPrompting()`, which answers prompts with key presses, and with
+`anvilAnswering()` where the plain fallback matters:
+
+```php
+[$code, $output, $prompts] = anvilPrompting($dir, 'make:model', [], keys('Post', Key::ENTER, Key::ENTER));
+```
 
 ## Documentation
 

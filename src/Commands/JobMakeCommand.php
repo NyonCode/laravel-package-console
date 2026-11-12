@@ -10,6 +10,8 @@ final class JobMakeCommand extends GenerateCommand
 {
     protected string $type = 'Job';
 
+    protected string $example = 'IndexPost';
+
     protected string $namespace = 'Jobs';
 
     public function getStub(): string
