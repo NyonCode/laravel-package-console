@@ -2,7 +2,9 @@
 
 All notable changes to `nyoncode/laravel-package-console` are documented in this file.
 
-## Unreleased
+## 1.1.0 - 2026-11-12
+
+Anvil checks a package, asks for what it is missing and edits the package's settings.
 
 ### Added
 
@@ -13,7 +15,6 @@ All notable changes to `nyoncode/laravel-package-console` are documented in this
   that are not where PSR-4 expects them. `--fix` registers what is missing, the way the
   generators do; `--strict` fails on warnings; `--json` prints the findings. See
   [Checking a package](docs/doctor.md).
-
 - Interactive mode with [Laravel Prompts](https://laravel.com/docs/prompts). A generator that
   is run without its name asks for it, validates it as it is submitted and then asks about its
   options: `make:model` offers the migration, factory, seeder, policy and controller,
@@ -53,11 +54,9 @@ All notable changes to `nyoncode/laravel-package-console` are documented in this
 - `--model` (`make:controller`, `make:factory`, `make:observer`, `make:policy`) and `--event`
   (`make:listener`) are validated as class names. A value such as `"Post Model"` or
   `"Admin/Class"` used to be written into the generated `use` statement and type.
-
 - In a plain provider that loads its views or translations under a namespace other than the
   short name, they are now published under that namespace
   (`resource_path('views/vendor/laravel-blog')`), where Laravel looks for them.
-
 - In a plain provider (and in the `packageBooted()`/`packageRegistered()` hooks of a Spatie one),
   a generator no longer registers a resource the provider already registers in its own words.
   Anvil used to look for the exact code it writes, so
