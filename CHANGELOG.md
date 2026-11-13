@@ -2,6 +2,34 @@
 
 All notable changes to `nyoncode/laravel-package-console` are documented in this file.
 
+## 1.2.0 - 2026-11-13
+
+Anvil works on the packages of a monorepo.
+
+### Added
+
+- Monorepo support. Anvil reads the four common layouts of a PHP monorepo: Composer path
+  repositories, wikimedia/composer-merge-plugin, symplify/monorepo-builder and roots that
+  `replace` their packages (as laravel/framework does). See [Monorepos](docs/monorepo.md).
+- The global `--package` option (or `ANVIL_PACKAGE`) chooses the package a command works on, by
+  its directory, directory name, Composer name or short name. Without it, Anvil works on the
+  package you are in, the only package of the monorepo, or the one you choose when it asks.
+  Shell completion suggests the packages.
+- `package:init --package=packages/blog` creates a package in the monorepo and makes the root
+  install it as its layout does: a path repository and `@dev` requirement, a merge-plugin
+  `include`, or what `monorepo-builder merge` would add (prefixed PSR-4, requirements,
+  `replace`). The first package also gets the root's `anvil` launcher and `.gitignore`.
+- The root gets one CI workflow that tests every package on its own, on PHP 8.2–8.5 with the
+  lowest and the highest dependencies, with the other packages from path repositories. Each new
+  package is added to its matrix; a job whose PHP version the package does not support is
+  skipped. A package of a monorepo no longer gets a workflow of its own.
+- `package:doctor` in a monorepo reports a package the root does not install (`--fix` adds what
+  is missing) and a requirement on another package of the monorepo that a path repository
+  cannot satisfy. `package:doctor --all` and `package:info --all` cover every package;
+  `--all` also lists dependencies the packages require with different constraints.
+- Stubs in the monorepo root's `stubs/anvil/` are used by every package; a package's own still
+  win.
+
 ## 1.1.0 - 2026-11-12
 
 Anvil checks a package, asks for what it is missing and edits the package's settings.
