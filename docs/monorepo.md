@@ -238,6 +238,12 @@ Where it cannot ask (`-n`, CI), it stops:
 `--package` works from inside a package too: `php anvil make:event Paid --package=shop` in
 `packages/blog` writes to `packages/shop`. Shell completion suggests the packages.
 
+Anvil looks for the monorepo root in the directories above the package. Its stubs end up in
+generated code and `package:init` writes to it, so the search stops at a trust boundary: the
+root of the git repository (a directory with `.git`), the directory below your home or the
+temporary directory, and a directory owned by another user. A package that is a git
+repository of its own is therefore never treated as part of a monorepo above it.
+
 ## Every package at once
 
 `package:info --all` lists the packages:

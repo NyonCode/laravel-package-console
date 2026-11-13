@@ -196,20 +196,41 @@ final class Workspace
     }
 
     /**
-     * The working directory and the ones above it.
+     * The working directory and the ones above it, up to a trust boundary: a monorepo's stubs
+     * end up in generated code and package:init writes to its root, so a composer.json planted
+     * in a shared directory above the package must not count. The walk stops at the root of the
+     * git repository, below the home and the temporary directory, and at a directory owned by
+     * another user.
      *
      * @return iterable<string>
      */
     private function upwards(): iterable
     {
         $directory = rtrim($this->directory, '/\\') ?: DIRECTORY_SEPARATOR;
+        $boundaries = array_filter(array_map(
+            fn (string|false $path) => $path === false || $path === '' ? null : (realpath($path) ?: null),
+            [getenv('HOME'), getenv('USERPROFILE'), sys_get_temp_dir()]
+        ));
+        $user = function_exists('posix_geteuid') ? posix_geteuid() : null;
 
         while (true) {
             yield $directory;
 
             $parent = dirname($directory);
 
-            if ($parent === $directory) {
+            if ($parent === $directory || file_exists($directory.DIRECTORY_SEPARATOR.'.git')) {
+                return;
+            }
+
+            $real = realpath($parent) ?: $parent;
+
+            foreach ($boundaries as $boundary) {
+                if ($real === $boundary || str_starts_with($boundary.DIRECTORY_SEPARATOR, rtrim($real, '/\\').DIRECTORY_SEPARATOR)) {
+                    return;
+                }
+            }
+
+            if ($user !== null && @fileowner($parent) !== $user) {
                 return;
             }
 

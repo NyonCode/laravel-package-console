@@ -47,7 +47,8 @@ Supported dependency range: Symfony `^7.2|^8.0` and Pest `^3.8|^4.0`. Run the su
   its packages.
 - `BaseCommand::initialize()` calls `Kernel::selectPackage()` with the global `--package` option
   (or `ANVIL_PACKAGE`): it locates a package of the monorepo or a directory; without it, the
-  working directory, the nearest `composer.json` above, the only package of the monorepo, or a
+  working directory, the nearest `composer.json` above (the upward search stops at `.git`, below
+  home/temp and at a directory of another user: root stubs become code), the only package of the monorepo, or a
   prompt. Once chosen, commands run through `call()` keep it. `worksOnPackage()` is false for
   `--all`; `createsPackage()` lets `package:init` name a new directory.
 - `Monorepo::install()` adds what the root lacks to install a package (path repository + `@dev`,

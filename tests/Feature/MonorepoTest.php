@@ -235,6 +235,16 @@ describe('every package of the monorepo', function () {
         expect($output)->toContain('--package=packages/shop');
     });
 
+    it('does not look for the monorepo above the root of a git repository', function () {
+        $root = monorepo();
+
+        expect(generate("$root/packages/shop", 'package:info'))->toContain('--package=packages/shop');
+
+        mkdir("$root/packages/shop/.git");
+
+        expect(generate("$root/packages/shop", 'package:info'))->not->toContain('Monorepo');
+    });
+
     it('checks them with package:doctor --all', function () {
         $root = monorepo();
         unregisteredCommand($root);
