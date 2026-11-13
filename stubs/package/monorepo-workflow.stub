@@ -1,0 +1,58 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [{{ packages }}]
+        php: ['8.2', '8.3', '8.4', '8.5']
+        dependencies: [lowest, highest]
+
+    name: ${{ matrix.package }} - PHP ${{ matrix.php }} - ${{ matrix.dependencies }}
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Check that the package supports this PHP version
+        id: php
+        run: |
+          supported=$(php -r '
+            Phar::loadPhar($argv[1], "composer.phar");
+            require "phar://composer.phar/vendor/autoload.php";
+            $php = json_decode(file_get_contents("composer.json"), true)["require"]["php"] ?? "*";
+            echo Composer\Semver\Semver::satisfies(PHP_VERSION, $php) ? "true" : "false";
+          ' -- "$(command -v composer)")
+          echo "supported=$supported" >> "$GITHUB_OUTPUT"
+          if [ "$supported" != true ]; then echo "::notice::${{ matrix.package }} does not support PHP ${{ matrix.php }}, its tests are skipped."; fi
+
+      - name: Use the other packages of the monorepo
+        if: steps.php.outputs.supported == 'true'
+        run: |
+{{ repositories }}
+          composer config minimum-stability dev
+
+      - name: Install dependencies
+        if: steps.php.outputs.supported == 'true'
+        run: composer update --prefer-dist --no-interaction --no-progress ${{ matrix.dependencies == 'lowest' && '--prefer-lowest' || '' }}
+
+      - name: Run tests
+        if: steps.php.outputs.supported == 'true'
+        run: vendor/bin/pest --ci

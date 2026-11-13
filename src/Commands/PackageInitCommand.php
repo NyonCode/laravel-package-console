@@ -4,6 +4,8 @@ namespace NyonCode\LaravelPackageConsole\Commands;
 
 use Closure;
 use Laravel\Prompts\FormBuilder;
+use NyonCode\LaravelPackageConsole\Kernel;
+use NyonCode\LaravelPackageConsole\Support\Monorepo;
 use NyonCode\LaravelPackageConsole\Support\Package;
 use NyonCode\LaravelPackageConsole\Support\PhpFileEditor;
 use RuntimeException;
@@ -40,6 +42,11 @@ final class PackageInitCommand extends GenerateCommand
 
     protected string $type = 'File';
 
+    protected function createsPackage(): bool
+    {
+        return true;
+    }
+
     public function handle(): int
     {
         $package = $this->package();
@@ -69,6 +76,7 @@ final class PackageInitCommand extends GenerateCommand
         $laravel = $answers['laravel'];
 
         $this->keepNamespace($before['namespace']);
+        $this->makeDirectory($package->path('composer.json'));
         $this->writeComposer($name, $description, $namespace, $author, $email, $toolkit, $laravel, $before);
         $package->refresh();
 
@@ -91,7 +99,12 @@ final class PackageInitCommand extends GenerateCommand
             $this->call('make:config');
         }
 
-        $this->scaffold($this->replacements($description, $author, $laravel));
+        $monorepo = $this->monorepoDirectory();
+        $this->scaffold($this->replacements($description, $author, $laravel), $monorepo !== null);
+
+        if ($monorepo !== null) {
+            $this->installInMonorepo($monorepo);
+        }
 
         if ($before['laravel'] !== null && $before['laravel'] !== $laravel) {
             $this->checkWorkflow($laravel);
@@ -103,13 +116,20 @@ final class PackageInitCommand extends GenerateCommand
             'spatie' => 'Package ready (with spatie/laravel-package-tools).',
             default => 'Package ready.',
         });
-        $this->message([
+        $this->message($monorepo === null ? [
             '  Next steps:',
             '    <options=bold>composer update</>',
             '    <options=bold>vendor/bin/pest</>',
             '',
             '  Then add resources with the make:* commands, e.g. <options=bold>php anvil make:model Post -mf</>.',
             '  They are registered in '.$package->relativePath((string) $package->mainProviderPath()).' automatically.',
+        ] : [
+            '  Next steps:',
+            '    <options=bold>composer update</>                     in the monorepo root',
+            '    <options=bold>composer update && vendor/bin/pest</>  in '.$monorepo,
+            '',
+            '  Then add resources with the make:* commands, e.g. <options=bold>php anvil make:model Post -mf --package='.$monorepo.'</>',
+            '  in the monorepo root. They are registered in '.$package->relativePath((string) $package->mainProviderPath()).' automatically.',
         ]);
 
         return self::SUCCESS;
@@ -174,7 +194,7 @@ final class PackageInitCommand extends GenerateCommand
         $requireDev = [
             'larastan/larastan' => '^3.0',
             'laravel/pint' => '^1.24',
-            'nyoncode/laravel-package-console' => '^'.explode('.', (string) anvil_config('version'))[0].'.0',
+            'nyoncode/laravel-package-console' => $this->consoleConstraint(),
             'orchestra/testbench' => implode('|', array_map(fn (string $v) => '^'.self::LARAVEL[$v]['testbench'].'.0', $laravel)),
             'pestphp/pest' => $supportsL12 ? '^3.8|^4.0' : '^4.0',
             'pestphp/pest-plugin-laravel' => $supportsL12 ? '^3.2|^4.0' : '^4.0',
@@ -275,7 +295,7 @@ final class PackageInitCommand extends GenerateCommand
     /**
      * @param  array<string, string>  $replacements
      */
-    private function scaffold(array $replacements): void
+    private function scaffold(array $replacements, bool $inMonorepo = false): void
     {
         $files = [
             'anvil' => 'anvil.stub',
@@ -301,6 +321,13 @@ final class PackageInitCommand extends GenerateCommand
 
         foreach ($files as $target => $stub) {
             $path = $this->package()->path($target);
+
+            // GitHub runs only the workflows of the repository root: the monorepo's tests the package.
+            if ($inMonorepo && $target === '.github/workflows/tests.yml' && ! $this->files->isFile($path)) {
+                $this->output()->writeln("  <fg=gray>SKIP</>   $target (the monorepo's workflow tests the package)");
+
+                continue;
+            }
 
             if ($this->files->isFile($path) && ! $this->option('force')) {
                 $this->output()->writeln("  <fg=gray>SKIP</>   $target (exists)");
@@ -330,6 +357,110 @@ final class PackageInitCommand extends GenerateCommand
 
             $this->output()->writeln("  <fg=green;options=bold>CREATE</> $target");
         }
+    }
+
+    /**
+     * The package's directory relative to the root of the monorepo it is in, if it is in one.
+     */
+    private function monorepoDirectory(): ?string
+    {
+        $relative = Kernel::workspace()->monorepo()?->relative($this->package()->path());
+
+        return $relative !== '.' ? $relative : null;
+    }
+
+    /**
+     * Make the root of the monorepo install the package (see Monorepo::install()), and give the
+     * root what it needs once: Anvil and its launcher, a .gitignore, and a CI workflow that tests
+     * every package.
+     */
+    private function installInMonorepo(string $relative): void
+    {
+        $monorepo = Kernel::workspace()->monorepo();
+        $up = str_repeat('../', substr_count($relative, '/') + 1);
+
+        $added = $monorepo->install($relative, ['nyoncode/laravel-package-console' => $this->consoleConstraint()]);
+
+        if ($added !== []) {
+            $this->output()->writeln("  <fg=green;options=bold>UPDATE</> {$up}composer.json (".implode(', ', $added).')');
+        }
+
+        if ($monorepo->layout() === Monorepo::BUILDER && ! $monorepo->covers($relative)) {
+            $this->output()->writeln(sprintf(
+                '  <fg=yellow;options=bold>WARN</> %s is not in the package directories of monorepo-builder.php (%s). Add it there.',
+                $relative,
+                implode(', ', $monorepo->builderDirectories()[0])
+            ));
+        }
+
+        foreach (['anvil' => 'anvil.stub', '.gitignore' => 'gitignore.stub'] as $file => $stub) {
+            if (! $this->files->isFile($monorepo->root($file))) {
+                $this->files->put($monorepo->root($file), $this->files->get($this->resolveStub('package/'.$stub)));
+                $this->output()->writeln("  <fg=green;options=bold>CREATE</> {$up}{$file}");
+            }
+        }
+
+        @chmod($monorepo->root('anvil'), 0755);
+
+        if (! $this->option('no-tests')) {
+            $this->monorepoWorkflow($monorepo, $relative, $up);
+        }
+    }
+
+    /**
+     * The root's CI workflow runs the tests of every package, each installed on its own with
+     * the other packages from path repositories. Anvil's workflow gets the new package added to
+     * its matrix; a workflow of your own only a warning when it does not mention the package.
+     */
+    private function monorepoWorkflow(Monorepo $monorepo, string $relative, string $up): void
+    {
+        $path = $monorepo->root('.github/workflows/tests.yml');
+        $packages = array_values(array_filter(array_keys($monorepo->packages()), fn (string $package) => $package !== '.'));
+
+        if (! $this->files->isFile($path)) {
+            $repositories = [];
+
+            foreach ($monorepo->repositoryPatterns() as $index => $pattern) {
+                $repositories[] = sprintf(
+                    "          composer config repositories.monorepo-%d '{\"type\": \"path\", \"url\": \"\${{ github.workspace }}/%s\"}'",
+                    $index + 1,
+                    $pattern
+                );
+            }
+
+            $this->makeDirectory($path);
+            $this->files->put($path, $this->populateStub($this->files->get($this->resolveStub('package/monorepo-workflow.stub')), [
+                'packages' => implode(', ', array_map(fn (string $package) => "'$package'", $packages)),
+                'repositories' => implode("\n", $repositories),
+            ]));
+            $this->output()->writeln("  <fg=green;options=bold>CREATE</> {$up}.github/workflows/tests.yml");
+
+            return;
+        }
+
+        $workflow = $this->files->get($path);
+
+        if (preg_match('/^(\s+package: \[)(.*)\]$/m', $workflow, $match)) {
+            $listed = array_map(fn (string $item) => trim($item, " '\""), array_filter(explode(',', $match[2]), 'trim'));
+
+            if (! in_array($relative, $listed, true)) {
+                $listed[] = $relative;
+                sort($listed);
+                $this->files->put($path, str_replace($match[0], $match[1].implode(', ', array_map(fn (string $package) => "'$package'", $listed)).']', $workflow));
+                $this->output()->writeln("  <fg=green;options=bold>UPDATE</> {$up}.github/workflows/tests.yml (matrix package $relative)");
+            }
+
+            return;
+        }
+
+        if (! str_contains($workflow, $relative)) {
+            $this->output()->writeln("  <fg=yellow;options=bold>WARN</> {$up}.github/workflows/tests.yml does not mention $relative. Add its tests to the monorepo's CI.");
+        }
+    }
+
+    private function consoleConstraint(): string
+    {
+        return '^'.explode('.', (string) anvil_config('version'))[0].'.0';
     }
 
     /**

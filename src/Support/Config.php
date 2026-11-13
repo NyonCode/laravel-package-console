@@ -33,6 +33,14 @@ class Config
     }
 
     /**
+     * Work on another package (in a monorepo).
+     */
+    public function usePackagePath(string $packagePath): void
+    {
+        $this->packagePath = rtrim($packagePath, DIRECTORY_SEPARATOR);
+    }
+
+    /**
      * Root directory of this console library.
      */
     public function basePath(string $path = ''): string

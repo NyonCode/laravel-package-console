@@ -90,10 +90,11 @@ Class generators write into these namespaces, relative to the
 
 ## Global options
 
-Every command also accepts Symfony Console's global options:
+Every command also accepts Symfony Console's global options, and `--package`:
 
 | Option | |
 |---|---|
+| `--package=` | The package to work on in a [monorepo](monorepo.md#choosing-the-package): its directory, directory name or Composer name |
 | `-h`, `--help` | Show the command's help |
 | `-n`, `--no-interaction` | Never ask; use defaults, and fail on missing required arguments |
 | `-q`, `--quiet` | Only print errors |
@@ -598,14 +599,19 @@ package:doctor [options]
 | `--fix` | flag |  | Register what is missing in the service provider and composer.json |
 | `--strict` | flag |  | Exit with 1 on warnings as well as on errors |
 | `--json` | flag |  | Print the findings as JSON |
+| `--all` | flag |  | Check every package of the monorepo |
 
 ### `package:info`
 
 Show what the console knows about the package.
 
 ```
-package:info
+package:info [options]
 ```
+
+| Argument / option | Type | Default | Description |
+|---|---|---|---|
+| `--all` | flag |  | List every package of the monorepo |
 
 ### `package:init`
 

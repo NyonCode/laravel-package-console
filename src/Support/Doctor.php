@@ -68,7 +68,10 @@ final class Doctor
 
     private TranslationFiles $translations;
 
-    public function __construct(private readonly Package $package) {}
+    /**
+     * @param  Monorepo|null  $monorepo  The monorepo the package is in: its root must install it.
+     */
+    public function __construct(private readonly Package $package, private readonly ?Monorepo $monorepo = null) {}
 
     /**
      * @return list<Finding>
@@ -84,6 +87,7 @@ final class Doctor
         $this->checkProviders();
         $this->checkPsr4();
         $this->checkTranslations();
+        $this->checkMonorepo();
 
         $path = $this->package->mainProviderPath();
 
@@ -148,9 +152,58 @@ final class Doctor
             if ($finding->check === 'missing-translation') {
                 $this->translations->complete((string) $finding->subject);
             }
+
+            if ($finding->check === 'monorepo' && ($relative = $this->monorepoDirectory()) !== null) {
+                $this->monorepo?->install($relative);
+            }
         }
 
         return $fixed;
+    }
+
+    /**
+     * In a monorepo: the root installs the package as the monorepo's layout does it, and the
+     * versions of the other packages it requires are ones a path repository can give.
+     */
+    private function checkMonorepo(): void
+    {
+        $relative = $this->monorepoDirectory();
+
+        if ($this->monorepo === null || $relative === null) {
+            return;
+        }
+
+        $root = str_repeat('../', substr_count($relative, '/') + 1).'composer.json';
+        $missing = $this->monorepo->install($relative, write: false);
+
+        if ($missing !== []) {
+            $this->add(
+                Finding::ERROR,
+                'monorepo',
+                'of the monorepo ('.Monorepo::LABELS[$this->monorepo->layout()].') does not install the package. Missing: '.implode(', ', $missing).'.',
+                $root,
+                'added '.implode(', ', $missing).' to the monorepo\'s composer.json'
+            );
+        }
+
+        foreach ($this->monorepo->unsatisfiableSiblings($relative) as $dependency => $constraint) {
+            $this->add(
+                Finding::WARNING,
+                'monorepo',
+                "requires $dependency $constraint, but the path repository gives it only a dev version (dev-main). Add \"extra.branch-alias\" to its composer.json, or require it as @dev.",
+                'composer.json'
+            );
+        }
+    }
+
+    /**
+     * The package's directory relative to the monorepo root; null outside a monorepo, or for the root itself.
+     */
+    private function monorepoDirectory(): ?string
+    {
+        $relative = $this->monorepo?->relative($this->package->path());
+
+        return $relative !== '.' ? $relative : null;
     }
 
     private function wanted(string $subject): bool

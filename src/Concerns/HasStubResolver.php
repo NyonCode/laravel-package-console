@@ -2,6 +2,7 @@
 
 namespace NyonCode\LaravelPackageConsole\Concerns;
 
+use NyonCode\LaravelPackageConsole\Kernel;
 use RuntimeException;
 
 trait HasStubResolver
@@ -17,8 +18,8 @@ trait HasStubResolver
     }
 
     /**
-     * Resolve the given stub: a customised copy in the package's stubs/anvil/ directory
-     * wins over the one shipped with the console.
+     * Resolve the given stub: a customised copy in the package's stubs/anvil/ directory, or
+     * in a monorepo in its root's stubs/anvil/, wins over the one shipped with the console.
      *
      * @throws RuntimeException
      */
@@ -28,7 +29,13 @@ trait HasStubResolver
             throw new RuntimeException('No stub defined for ['.static::class.'].');
         }
 
-        foreach ([anvil_package_path('stubs/anvil/'.$stub), anvil_stubs_path($stub)] as $path) {
+        $monorepo = Kernel::workspace()->monorepo();
+
+        foreach (array_filter([
+            anvil_package_path('stubs/anvil/'.$stub),
+            $monorepo?->root('stubs/anvil/'.$stub),
+            anvil_stubs_path($stub),
+        ]) as $path) {
             if ($this->files->isFile($path)) {
                 return $path;
             }

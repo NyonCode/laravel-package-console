@@ -2,8 +2,10 @@
 
 namespace NyonCode\LaravelPackageConsole\Commands;
 
+use NyonCode\LaravelPackageConsole\Kernel;
 use NyonCode\LaravelPackageConsole\Support\Doctor;
 use NyonCode\LaravelPackageConsole\Support\Finding;
+use NyonCode\LaravelPackageConsole\Support\Monorepo;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputOption;
 
@@ -20,17 +22,116 @@ final class PackageDoctorCommand extends BaseCommand
         Finding::INFO => '<fg=blue;options=bold>INFO</> ',
     ];
 
+    protected function worksOnPackage(): bool
+    {
+        return ! $this->option('all');
+    }
+
     public function handle(): int
     {
-        $package = $this->package();
+        if (! $this->option('all')) {
+            $package = $this->package();
 
-        if (! $package->exists()) {
-            $this->warning('No composer.json in '.$package->path().'. Run "package:init" to create the package.');
+            if (! $package->exists()) {
+                $this->warning('No composer.json in '.$package->path().'. Run "package:init" to create the package.');
+
+                return self::FAILURE;
+            }
+
+            [$failed, $report] = $this->examine();
+
+            if ($this->option('json')) {
+                $this->output()->writeln($this->json($report));
+            }
+
+            return $failed ? self::FAILURE : self::SUCCESS;
+        }
+
+        $packages = Kernel::workspace()->packages();
+
+        if ($packages === []) {
+            $this->warning('--all checks the packages of a monorepo, and there are none: see "Monorepos" in the docs for how Anvil finds them.');
 
             return self::FAILURE;
         }
 
-        $doctor = new Doctor($package);
+        $monorepo = $this->examineMonorepo();
+        $failed = $this->option('strict') && $monorepo['warnings'] > 0;
+        $reports = [];
+
+        foreach ($packages as $relative => $path) {
+            $package = Kernel::usePackage($path);
+
+            if (! $this->option('json')) {
+                $this->output()->writeln("\n<options=bold>$relative</> <fg=gray>({$package->name()})</>");
+            }
+
+            [$packageFailed, $reports[$relative]] = $this->examine();
+            $failed = $failed || $packageFailed;
+        }
+
+        if ($this->option('json')) {
+            $this->output()->writeln($this->json([
+                'errors' => array_sum(array_column($reports, 'errors')),
+                'warnings' => array_sum(array_column($reports, 'warnings')) + $monorepo['warnings'],
+                'monorepo' => $monorepo,
+                'packages' => $reports,
+            ]));
+        }
+
+        return $failed ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * What concerns the monorepo as a whole: dependencies its packages require with different
+     * constraints (as monorepo-builder's "validate" checks). Only INFO: packages often support
+     * different Laravel versions on purpose. Printed unless --json.
+     *
+     * @return array{root: string, layouts: list<string>, warnings: int, findings: list<array<string, mixed>>}
+     */
+    private function examineMonorepo(): array
+    {
+        $monorepo = Kernel::workspace()->monorepo();
+        $findings = [];
+
+        foreach ($monorepo?->conflictingConstraints() ?? [] as $dependency => $constraints) {
+            $findings[] = new Finding(Finding::INFO, 'constraints', 'is required with different constraints: '.implode(', ', array_map(
+                fn (string $package, string $constraint) => "$constraint in $package",
+                array_keys($constraints),
+                $constraints
+            )).'.', $dependency);
+        }
+
+        $layouts = $monorepo?->layouts() ?? [];
+
+        if (! $this->option('json')) {
+            $this->output()->writeln('<options=bold>Monorepo</> <fg=gray>('.implode(', ', array_map(fn (string $layout) => Monorepo::LABELS[$layout], $layouts ?: [Monorepo::PATH])).')</>');
+
+            foreach ($findings as $finding) {
+                $this->output()->writeln('  '.self::LABELS[$finding->severity].' '.$this->describe($finding));
+            }
+
+            if ($findings === []) {
+                $this->output()->writeln('  <fg=green;options=bold>DONE</> The packages require their dependencies with the same constraints.');
+            }
+        }
+
+        return [
+            'root' => (string) $monorepo?->root(),
+            'layouts' => $layouts,
+            'warnings' => $this->count($findings, Finding::WARNING),
+            'findings' => array_map(fn (Finding $finding) => $finding->toArray(), $findings),
+        ];
+    }
+
+    /**
+     * Examine (and with --fix fix) the current package, and print the findings unless --json.
+     *
+     * @return array{0: bool, 1: array{errors: int, warnings: int, fixed: list<array<string, mixed>>, findings: list<array<string, mixed>>}} Whether it failed, and the report.
+     */
+    private function examine(): array
+    {
+        $doctor = new Doctor($this->package(), Kernel::workspace()->monorepo());
         $findings = $doctor->examine();
         $fixed = [];
 
@@ -61,16 +162,15 @@ final class PackageDoctorCommand extends BaseCommand
         $errors = $this->count($findings, Finding::ERROR);
         $warnings = $this->count($findings, Finding::WARNING);
         $failed = $errors > 0 || ($this->option('strict') && $warnings > 0);
+        $report = [
+            'errors' => $errors,
+            'warnings' => $warnings,
+            'fixed' => array_map(fn (Finding $finding) => $finding->toArray(), $fixed),
+            'findings' => array_map(fn (Finding $finding) => $finding->toArray(), $findings),
+        ];
 
         if ($this->option('json')) {
-            $this->output()->writeln((string) json_encode([
-                'errors' => $errors,
-                'warnings' => $warnings,
-                'fixed' => array_map(fn (Finding $finding) => $finding->toArray(), $fixed),
-                'findings' => array_map(fn (Finding $finding) => $finding->toArray(), $findings),
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-
-            return $failed ? self::FAILURE : self::SUCCESS;
+            return [$failed, $report];
         }
 
         foreach ($fixed as $finding) {
@@ -91,7 +191,12 @@ final class PackageDoctorCommand extends BaseCommand
 
         $this->output()->writeln('  '.$this->summary($findings, $errors, $warnings, count($fixed)));
 
-        return $failed ? self::FAILURE : self::SUCCESS;
+        return [$failed, $report];
+    }
+
+    private function json(array $report): string
+    {
+        return (string) json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
     /**
@@ -137,7 +242,7 @@ final class PackageDoctorCommand extends BaseCommand
         $fixable = count($this->fixable($findings));
 
         return ucfirst(implode(', ', $parts)).'.'.($fixable > 0
-            ? " Run <options=bold>package:doctor --fix</> to fix $fixable of them."
+            ? ' Run <options=bold>package:doctor '.($this->option('all') ? '--all ' : '')."--fix</> to fix $fixable of them."
             : '');
     }
 
@@ -169,6 +274,7 @@ final class PackageDoctorCommand extends BaseCommand
             ['fix', null, InputOption::VALUE_NONE, 'Register what is missing in the service provider and composer.json'],
             ['strict', null, InputOption::VALUE_NONE, 'Exit with 1 on warnings as well as on errors'],
             ['json', null, InputOption::VALUE_NONE, 'Print the findings as JSON'],
+            ['all', null, InputOption::VALUE_NONE, 'Check every package of the monorepo'],
         ];
     }
 }

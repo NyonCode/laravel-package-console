@@ -39,6 +39,28 @@ Supported dependency range: Symfony `^7.2|^8.0` and Pest `^3.8|^4.0`. Run the su
   - `usesToolkit()`;
   - `mainProvider()`: the first existing class in `extra.laravel.providers`.
 
+**Monorepos.** `Support/Workspace` decides which package a command works on; `Kernel` holds it.
+- `Support/Monorepo` reads the layouts of `docs/monorepo.md`: path repositories, composer-merge-plugin
+  (`extra.merge-plugin`), symplify/monorepo-builder (`monorepo-builder.php`, parsed with php-parser)
+  and roots that `replace` their packages at `self.version` (laravel/framework). `layout()` is how a
+  new package is installed; `rootIsPackage()` is true only when the root autoloads classes outside
+  its packages.
+- `BaseCommand::initialize()` calls `Kernel::selectPackage()` with the global `--package` option
+  (or `ANVIL_PACKAGE`): it locates a package of the monorepo or a directory; without it, the
+  working directory, the nearest `composer.json` above, the only package of the monorepo, or a
+  prompt. Once chosen, commands run through `call()` keep it. `worksOnPackage()` is false for
+  `--all`; `createsPackage()` lets `package:init` name a new directory.
+- `Monorepo::install()` adds what the root lacks to install a package (path repository + `@dev`,
+  merge-plugin include, or monorepo-builder's merge: prefixed PSR-4, requirements, `replace`).
+  With `write: false` it previews: `Doctor::checkMonorepo()` reports the preview and `--fix` writes
+  it, so the doctor and `package:init` cannot disagree.
+- `package:init` inside a monorepo also writes the root's `anvil`, `.gitignore` and
+  `.github/workflows/tests.yml` (`stubs/package/monorepo-workflow.stub`, a `package` matrix it
+  extends), and skips the package's own workflow.
+- `package:doctor --all` / `package:info --all` loop over the packages with `Kernel::usePackage()`;
+  `--all` also reports `Monorepo::conflictingConstraints()`. Tests are in
+  `tests/Feature/MonorepoTest.php`.
+
 **Command discovery.** `Kernel` → `CommandDiscovery` registers every instantiable class under `src/Commands` that has `#[AsCommand]`. Adding a command means adding a class there. Use the `aliases:` argument of `#[AsCommand]` for alternative names.
 
 **Command hierarchy.**

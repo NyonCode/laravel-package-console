@@ -108,6 +108,10 @@ return [
     'Complete the package with these settings?' => 'Doplnit balíček s tímto nastavením?',
     'Nothing was written.' => 'Nic nebylo zapsáno.',
 
+    // Monorepo
+    'Which package of the monorepo?' => 'Se kterým balíčkem monorepa pracovat?',
+    'In which directory of the monorepo should the package be?' => 'Ve kterém adresáři monorepa má balíček být?',
+
     // package:doctor --fix
     'Which of these should be fixed?' => 'Které z těchto nálezů opravit?',
 

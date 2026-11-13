@@ -61,6 +61,9 @@ code you wrote, so running a command twice changes nothing.
   registers what the package has and that its languages have the same keys.
 - **Questions instead of errors**: in a terminal, a command that is missing its name asks for
   it and for the options that go with it, [in English or Czech](interactive.md#language).
+- **Monorepos**: `package:init --package=packages/blog` adds a package to a monorepo, `--package`
+  picks the package a command works on, and `package:doctor --all` checks them all. See
+  [Monorepos](monorepo.md).
 - **Your own stubs**: put a copy of any stub in `stubs/anvil/` in your package and Anvil uses it
   instead of the built-in one.
 
@@ -77,6 +80,7 @@ code you wrote, so running a command twice changes nothing.
 - [How Anvil reads your package](how-it-works.md): namespaces, the short name, the main provider, `package:info`
 - [Service provider registration](service-provider.md): exactly what each generator adds, in toolkit, spatie and plain mode
 - [Checking a package](doctor.md): `package:doctor` finds files the provider does not register and registrations of files that are gone
+- [Monorepos](monorepo.md): path repositories, composer-merge-plugin, monorepo-builder and laravel/framework-style roots, `--package`, `--all`, the root's CI
 
 **Generators**
 

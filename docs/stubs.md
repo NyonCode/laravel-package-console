@@ -16,7 +16,8 @@ description: Override any stub Anvil generates from by putting your own copy in 
 Anvil looks for each stub in your package first:
 
 1. `stubs/anvil/{stub}` in the package you are building;
-2. `stubs/{stub}` shipped with Anvil.
+2. in a [monorepo](monorepo.md#custom-stubs-for-the-whole-monorepo), `stubs/anvil/{stub}` in its root;
+3. `stubs/{stub}` shipped with Anvil.
 
 To change what a generator writes, copy its stub into `stubs/anvil/` under the same name and edit
 it:

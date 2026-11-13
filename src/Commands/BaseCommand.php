@@ -7,6 +7,7 @@ use NyonCode\LaravelPackageConsole\Concerns\HasInteractionWithIO;
 use NyonCode\LaravelPackageConsole\Concerns\HasOptions;
 use NyonCode\LaravelPackageConsole\Concerns\InputValidator;
 use NyonCode\LaravelPackageConsole\Concerns\NameNormalizer;
+use NyonCode\LaravelPackageConsole\Kernel;
 use NyonCode\LaravelPackageConsole\Support\Package;
 use NyonCode\LaravelPackageConsole\Support\Prompts;
 use RuntimeException;
@@ -28,6 +29,11 @@ abstract class BaseCommand extends Command
     use NameNormalizer;
 
     private ?Prompts $prompts = null;
+
+    /**
+     * Why the package to work on could not be chosen.
+     */
+    private ?string $packageError = null;
 
     /**
      * Execute the console command. Return an exit code (int), or false for failure.
@@ -90,6 +96,41 @@ abstract class BaseCommand extends Command
     }
 
     /**
+     * Whether the command works on one package, so it must be chosen (--package) before it runs.
+     */
+    protected function worksOnPackage(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Whether the command creates the package (package:init): --package may name a new directory.
+     */
+    protected function createsPackage(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Choose the package (in a monorepo) before the command asks for its arguments.
+     */
+    protected function initialize(InputInterface $input, OutputInterface $output): void
+    {
+        $this->packageError = null;
+
+        if (! $this->worksOnPackage()) {
+            return;
+        }
+
+        try {
+            $selector = $input->hasOption('package') ? $input->getOption('package') : null;
+            Kernel::selectPackage(is_string($selector) ? $selector : null, $this->createsPackage(), $this->prompts());
+        } catch (RuntimeException $e) {
+            $this->packageError = $e->getMessage();
+        }
+    }
+
+    /**
      * Configure the console command.
      */
     protected function configure(): void
@@ -103,6 +144,10 @@ abstract class BaseCommand extends Command
      */
     protected function interact(InputInterface $input, OutputInterface $output): void
     {
+        if ($this->packageError !== null) {
+            return;
+        }
+
         $prompted = false;
 
         foreach ($this->getDefinition()->getArguments() as $argument) {
@@ -153,6 +198,12 @@ abstract class BaseCommand extends Command
         $this->input = $input;
         $this->output = $output;
         $this->ioStyle = new SymfonyStyle($this->input, $this->output);
+
+        if ($this->packageError !== null) {
+            $this->error($this->packageError);
+
+            return self::FAILURE;
+        }
 
         $validationErrors = $this->validateArguments($input);
 
